@@ -86,6 +86,7 @@ test('cookie helpers reject injection, weak tokens, invalid names and duplicate 
   assert.throws(() => hostCookie('__Host-x', token, { sameSite: 'None' }), authError('invalid_cookie'));
   assert.equal(readHostCookie(null, '__Host-x'), undefined);
   assert.equal(readHostCookie('else=value', '__Host-x'), undefined);
+  assert.equal(readHostCookie(`__host-x=${token}`, '__Host-x'), undefined);
   assert.equal(readHostCookie(`else=1; __Host-x=${token}; tail=2`, '__Host-x'), token);
   assert.throws(() => readHostCookie(`__Host-x=${token}; __Host-x=${token}`, '__Host-x'), authError('invalid_cookie'));
 });
@@ -166,7 +167,7 @@ const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256
 const privateKey = createPrivateKey({ key: await crypto.subtle.exportKey('jwk', keys.privateKey), format: 'jwk' });
 const publicKey = createPublicKey(privateKey);
 const claims = { iss: 'https://accounts.synthetos.com', sub: 'usr_test', aud: 'run', iat: 1000, exp: 1060, nonce: 'browser-nonce' };
-const options = { issuer: claims.iss, audience: 'run', kid: 'key-1', now: 1000, nonce: 'browser-nonce', maxLifetimeSeconds: 60 };
+const options = { issuer: claims.iss, audience: 'run', kid: 'key-1', now: 1000, nonce: 'browser-nonce', maxLifetimeSeconds: 60, clockToleranceSeconds: 0 };
 function externallySigned(payload, header = { alg: 'ES256', typ: 'JWT', kid: 'key-1' }) {
   const data = `${Buffer.from(JSON.stringify(header)).toString('base64url')}.${Buffer.from(JSON.stringify(payload)).toString('base64url')}`;
   const signature = sign('sha256', Buffer.from(data), { key: privateKey, dsaEncoding: 'ieee-p1363' });
@@ -187,7 +188,7 @@ test('ES256 works against independent node:crypto signing and verification', asy
 
 test('signing refuses invalid claims before minting any token', async () => {
   for (const invalid of [null, [], true, 'claims', 12, Object.assign([], claims),
-    { ...claims, iss: '' }, { ...claims, aud: '' }, { ...claims, sub: 12 },
+    { ...claims, iss: '' }, { ...claims, aud: '' }, { ...claims, aud: ['run'] }, { ...claims, aud: ['run', 'forum'] }, { ...claims, sub: 12 },
     { ...claims, iat: -1 }, { ...claims, exp: 999 }, { ...claims, exp: claims.iat },
     { ...claims, exp: '1060' }, { ...claims, iat: 1.5 },
     { ...claims, nbf: -1 }, { ...claims, nbf: '1000' },
@@ -201,6 +202,28 @@ test('signing refuses invalid claims before minting any token', async () => {
   const ecdh = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
   for (const key of [p384.privateKey, ecdh.privateKey]) {
     await assert.rejects(signIdToken(claims, key, 'key-1'), authError('invalid_token'));
+  }
+});
+
+test('JWT clock tolerance permits bounded issuer skew without extending expiry or lifetime', async () => {
+  for (const tolerance of [0, 30, 60]) {
+    const tolerantOptions = { ...options, clockToleranceSeconds: tolerance };
+    for (const field of ['iat', 'nbf']) {
+      for (const offset of [-1, 0, ...(tolerance ? [1, tolerance] : [])]) {
+        const payload = { ...claims, exp: 1120, [field]: options.now + offset };
+        await verifyIdToken(externallySigned(payload), keys.publicKey,
+          { ...tolerantOptions, maxLifetimeSeconds: 121 });
+      }
+      await assert.rejects(verifyIdToken(externallySigned({ ...claims, exp: 1120, [field]: options.now + tolerance + 1 }),
+        keys.publicKey, { ...tolerantOptions, maxLifetimeSeconds: 121 }), authError('invalid_token'));
+    }
+    for (const payload of [{ ...claims, iat: 999, exp: 1000 }, { ...claims, exp: 1061 }]) {
+      await assert.rejects(verifyIdToken(externallySigned(payload), keys.publicKey, tolerantOptions), authError('invalid_token'));
+    }
+  }
+  for (const clockToleranceSeconds of [undefined, -1, 0.5, 61, NaN, Infinity, '30']) {
+    await assert.rejects(verifyIdToken(externallySigned(claims), keys.publicKey,
+      { ...options, clockToleranceSeconds }), authError('invalid_input'));
   }
 });
 

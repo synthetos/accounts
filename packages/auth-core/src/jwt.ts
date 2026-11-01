@@ -21,6 +21,8 @@ export interface VerifyIdTokenOptions {
   readonly nonce?: string;
   /** Set by the relying party, never read from an untrusted token. */
   readonly maxLifetimeSeconds: number;
+  /** RP-chosen integer 0..60, applied only to iat/nbf. Expiry stays strict. */
+  readonly clockToleranceSeconds: number;
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -56,6 +58,7 @@ export async function signIdToken(claims: IdTokenClaims, key: CryptoKey, kid: st
 export async function verifyIdToken(token: string, key: CryptoKey, options: VerifyIdTokenOptions): Promise<IdTokenClaims> {
   requireAuth(Number.isSafeInteger(options.now) && options.now >= 0 &&
     Number.isSafeInteger(options.maxLifetimeSeconds) && options.maxLifetimeSeconds > 0 &&
+    Number.isInteger(options.clockToleranceSeconds) && options.clockToleranceSeconds >= 0 && options.clockToleranceSeconds <= 60 &&
     options.issuer.length > 0 && options.audience.length > 0 && options.kid.length > 0, 'invalid_input');
   try {
     assertKey(key, 'public');
@@ -74,9 +77,10 @@ export async function verifyIdToken(token: string, key: CryptoKey, options: Veri
     const claims: unknown = JSON.parse(decodeUtf8(decodeBase64url(encodedClaims)));
     claimsShape(claims);
     requireAuth(claims.iss === options.issuer && claims.aud === options.audience, 'invalid_token');
-    requireAuth(claims.iat <= options.now && claims.exp > options.now &&
+    // Subtraction avoids overflowing now + tolerance. Expiry is never extended.
+    requireAuth(claims.iat - options.now <= options.clockToleranceSeconds && claims.exp > options.now &&
       claims.exp - claims.iat <= options.maxLifetimeSeconds, 'invalid_token');
-    if (claims.nbf !== undefined) requireAuth(claims.nbf <= options.now, 'invalid_token');
+    if (claims.nbf !== undefined) requireAuth(claims.nbf - options.now <= options.clockToleranceSeconds, 'invalid_token');
     if (options.nonce !== undefined) requireAuth(claims.nonce === options.nonce, 'invalid_token');
     return claims;
   } catch {

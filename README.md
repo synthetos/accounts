@@ -9,8 +9,8 @@ A1-01 and A1-02 implementation and local acceptance checks pass:
 
 - Frozen clean installation with lifecycle scripts disabled.
 - TypeScript, ESLint, dependency-cruiser and dependency licences.
-- 43 unit/schema/policy tests, including independent crypto vectors.
-- Stryker: **94.21%**, 504 killed / 535 total, 31 survivors, no timeouts or errors;
+- 44 unit/schema/policy tests, including independent crypto vectors.
+- Stryker: **94.54%**, 519 killed / 549 total, 30 survivors, no timeouts or errors;
   threshold remains 90%. Every mutated source file scores above 90%.
 - Local Wrangler D1: migration application, repeated application, fixture seed
   and provider/subject uniqueness rejection.
@@ -18,8 +18,9 @@ A1-01 and A1-02 implementation and local acceptance checks pass:
   toolchain installs only TypeScript, and the built Worker passes its smoke check.
 
 The initial sandbox restrictions were removed before the mutation and D1 runs.
-Independent collaborator review is pending. No hosted CI run, push, resource
-provisioning or deployment has been performed. These are foundations, not a
+The A1-01 collaborator review has been addressed; confirmation of those fixes
+and the A1-02 review remain pending. No hosted CI run, push, resource provisioning
+or deployment has been performed. These are foundations, not a
 production-ready identity service.
 
 ## Layout
@@ -67,7 +68,10 @@ These guards do not establish user authentication or resource authorization.
 
 ID tokens use ES256/P-256 with a fixed JWT header and single audience. Verification
 requires a caller-supplied trusted key, issuer, audience, key id, current time
-and lifetime cap. Pass the expected nonce when the authorization request used
+and lifetime cap, plus an explicit `clockToleranceSeconds` integer from 0 to 60.
+Tolerance applies only to future `iat`/`nbf`; `exp` remains strict and the lifetime
+cap is unchanged. Signing and verification both reject audience arrays.
+Pass the expected nonce when the authorization request used
 one. Never choose a key or issuer from unverified token URLs. This is an ID-token
 helper, not a generic access-token or multi-audience OIDC implementation.
 

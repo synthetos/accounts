@@ -5,6 +5,7 @@ function assertOrigin(request: Request, origin: string): void {
   const parsed = new URL(origin);
   requireAuth(parsed.protocol === 'https:' && parsed.origin === origin, 'invalid_input');
   requireAuth(request.headers.get('Origin') === origin, 'csrf_denied');
+  // Exact required Origin is the guard; Fetch Metadata is defence in depth and may be absent.
   const site = request.headers.get('Sec-Fetch-Site');
   requireAuth(site === null || site === 'same-origin', 'csrf_denied');
   requireAuth(['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method), 'csrf_denied');
