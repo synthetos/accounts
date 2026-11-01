@@ -27,7 +27,7 @@ test('configuration refuses every missing secret, noncanonical app ID, untrusted
       assert.equal((await f.app.fetch(new Request(origin+'/login'),{...f.env,[name]:undefined})).status,503,name);
     }
     for(const id of ['5559540','5559540\n','0','-1','00123','123\n','123a','1e3'])assert.equal((await f.app.fetch(new Request(origin+'/login'),{...f.env,GITHUB_APP_ID:id})).status,503,id);
-    for(const id of ['1','9007199254740991'])assert.equal((await f.app.fetch(new Request(origin+'/login'),{...f.env,GITHUB_APP_ID:id})).status,200);
+    for(const id of ['1','5562809','9007199254740991'])assert.equal((await f.app.fetch(new Request(origin+'/login'),{...f.env,GITHUB_APP_ID:id})).status,200,id);
     for(const ACCOUNT_ORIGIN of ['','http://accounts.test',origin+'/',origin+'?x=1','https://user:pass@accounts.test'])assert.equal((await f.app.fetch(new Request(origin+'/login'),{...f.env,ACCOUNT_ORIGIN})).status,503);
     assert.equal((await f.app.fetch(new Request('https://evil.test/login'),f.env)).status,400);
     for(const now of [-1,0.5,NaN,Infinity,281474976711]){f.now=now;assert.equal((await f.call('/missing')).status,503);}

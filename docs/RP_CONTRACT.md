@@ -182,6 +182,33 @@ the switch (longer than token lifetime, clock allowance and RP cache lifetime).
 RPs may refresh only this fixed trusted issuer's JWKS on an unknown kid; no
 unverified JWT URL is ever fetched. Responses use no-store and no CORS.
 
+## Production sign-in app and deployment configuration
+
+The owner registered this zero-permission public GitHub App for accounts
+(non-secret values, recorded 2026-11-01):
+
+| Setting | Value |
+|---|---|
+| Name / slug | `Synthetos` / `synthetos` |
+| `GITHUB_APP_ID` | `5562809` |
+| `GITHUB_CLIENT_ID` | `Iv23liIlkNxE7f3oEyX4` |
+| `ACCOUNT_ORIGIN` | `https://accounts.synthetos.com` |
+| GitHub callback | `https://accounts.synthetos.com/auth/github/callback` |
+| GitHub webhook | `https://accounts.synthetos.com/webhooks/github` |
+| Webhook event | `github_app_authorization` (revocations) |
+
+These identify the GitHub-to-accounts sign-in app, not a relying party's
+`oauth_clients` registration or client secret. The accounts guard accepts this
+app ID and refuses the forum app `5559540`. The owner retains the client secret,
+webhook secret and PKCS#8 app private key outside repositories; the current
+user-authorization adapter does not require that private key.
+
+A separate staging GitHub App is still pending. Use separate staging credentials
+and its configured callback; do not fill staging settings with the production
+registration. Cloudflare bindings/routes, owner-approved beta IDs and live
+sign-in/revocation verification remain A1-07 setup work. Recording this app does
+not enable authentication or authorize deployment.
+
 ## Release gates still pending
 
 A1-05 is independently accepted. Accounts provides the Chromium CI gate, D37

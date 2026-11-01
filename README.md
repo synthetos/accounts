@@ -35,8 +35,9 @@ three local D1/workerd gates and a staging Wrangler dry run with bundling disabl
 The initial sandbox restrictions were removed before the mutation and D1 runs.
 Independent review accepted A1-03 at `6b240ff`, A1-04 at `7c29b4e`/`7e7db46`,
 and A1-05 at `831350f` (with regression follow-up `8349842`).
-No hosted CI run, push, resource provisioning
-or deployment has been performed. These are foundations, not a
+No hosted CI run, push, Cloudflare provisioning
+or deployment has been performed here. The owner has registered the production
+GitHub sign-in app described below. These are foundations, not a
 production-ready identity service.
 
 ## Layout
@@ -140,7 +141,33 @@ and `GITHUB_CLIENT_SECRET`, plus `GITHUB_ALLOWED_IDS`. The forum app ID is expli
 32-byte keys; `GITHUB_WEBHOOK_SECRET` must contain at least 32 UTF-8 bytes. Never
 reuse production secrets in fixtures. Invocation observability is explicitly
 disabled, and application code does not log requests, credentials or upstream errors.
-No real app registration, secrets or database bindings are included in this repo.
+Only the owner's non-secret app registration values are documented below;
+secrets and real database bindings are not included in this repo.
+
+### Production GitHub App registration
+
+Owner-provided registration, recorded 2026-11-01:
+
+| Setting | Production value |
+|---|---|
+| App name / slug | `Synthetos` / `synthetos` |
+| `GITHUB_APP_ID` | `5562809` |
+| `GITHUB_CLIENT_ID` | `Iv23liIlkNxE7f3oEyX4` |
+| Visibility / permissions | Public / zero permissions |
+| `ACCOUNT_ORIGIN` | `https://accounts.synthetos.com` |
+| Authorization callback | `https://accounts.synthetos.com/auth/github/callback` |
+| Webhook URL | `https://accounts.synthetos.com/webhooks/github` |
+| Webhook event | `github_app_authorization` (revocations) |
+
+The app-ID guard accepts `5562809` and explicitly refuses the forum app
+`5559540`; the configuration regression covers both. The owner holds the client
+secret, webhook secret and PKCS#8 private key; none belongs in a repository.
+The current user-authorization adapter uses the client secret, not the app's
+private key. A separate staging GitHub App still needs to be created, with its
+own credentials and callback. This registration record does not enable the
+Worker or establish that a live sign-in/webhook test has passed.
+
+### Staff-beta admission and remaining setup
 
 D37 admission is enforced at `Store.signIn` before any user, identity or session is
 created. `GITHUB_ALLOWED_IDS` is a JSON array of canonical positive numeric GitHub
@@ -153,7 +180,8 @@ configuration supplies IDs. There is no bypass switch. Removing an ID blocks
 new sign-ins; use explicit session revocation to invalidate an existing session.
 Step-up/link remain bound to an already admitted account and cannot create users.
 
-Before release, A1-07 must provide those resources, owner-approved tester IDs
+Before release, A1-07 must finish the remaining bindings and secret configuration,
+the separate staging app, owner-approved tester IDs
 and staging Access protection. Scheduled retention for old login requests, rate
 buckets when there is no login traffic, revocation metadata and audit/session rows still needs implementation;
 webhook delivery cleanup occurs on webhook processing. Account management and
@@ -214,7 +242,8 @@ approval. Configure native branch protection with two trusted approving reviews,
 Code Owner review, stale-review dismissal and required verify/build/e2e/browser checks.
 These server settings cannot be enforced by PR-editable CI alone.
 
-Nothing has been pushed, deployed, or provisioned. The build/deploy lockfiles
+Repository publication, Cloudflare provisioning and deployment remain pending.
+The production GitHub App registration above was performed by the owner. The build/deploy lockfiles
 and action pins were taken from run commit `dc5accd`; no run files were changed.
 
 Native unit and mutation commands preload `workers/accounts/test/no-network.mjs`.
