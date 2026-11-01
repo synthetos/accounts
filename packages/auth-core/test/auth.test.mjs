@@ -52,6 +52,22 @@ test('canonical base64url round trips arbitrary bytes and rejects ambiguous enco
   }
 });
 
+test('base64url rejects each noncanonical spelling that atob otherwise accepts', () => {
+  for (const [label, value, byte] of [
+    ['space', 'Z g', 0x66],
+    ['newline', 'Zg\n', 0x66],
+    ['plus', '+w', 0xfb],
+    ['slash', '/w', 0xff],
+    ['padding', 'Zg==', 0x66],
+    ['nonzero trailing bits', 'Zh', 0x66],
+  ]) {
+    // Prove rejection depends on canonical validation, not atob throwing first.
+    assert.equal(atob(value), String.fromCharCode(byte), label);
+    assert.throws(() => decodeBase64url(value), authError('invalid_input'), label);
+    assert.deepEqual(decodeBase64url(Buffer.from([byte]).toString('base64url')), new Uint8Array([byte]));
+  }
+});
+
 test('base64url enforces its size cap even on valid input, and UTF-8 decoding is strict', () => {
   assert.equal(decodeBase64url('AAAA'.repeat(16384)).length, 49152);
   assert.throws(() => decodeBase64url('AAAA'.repeat(16385)), authError('invalid_input'));

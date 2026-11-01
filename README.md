@@ -9,7 +9,7 @@ A1-01 and A1-02 implementation and local acceptance checks pass:
 
 - Frozen clean installation with lifecycle scripts disabled.
 - TypeScript, ESLint, dependency-cruiser and dependency licences.
-- 46 unit/schema/policy tests, including independent crypto vectors and audit retention boundaries.
+- 47 unit/schema/policy tests, including independent crypto vectors and audit retention boundaries.
 - Stryker: **94.54%**, 519 killed / 549 total, 30 survivors, no timeouts or errors;
   threshold remains 90%. Every mutated source file scores above 90%.
 - Local Wrangler D1: migration application, repeated application, fixture seed,
