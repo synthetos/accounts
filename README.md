@@ -9,7 +9,7 @@ A1-01 and A1-02 implementation and local acceptance checks pass:
 
 - Frozen clean installation with lifecycle scripts disabled.
 - TypeScript, ESLint, dependency-cruiser and dependency licences.
-- 45 unit/schema/policy tests, including independent crypto vectors and audit retention boundaries.
+- 46 unit/schema/policy tests, including independent crypto vectors and audit retention boundaries.
 - Stryker: **94.54%**, 519 killed / 549 total, 30 survivors, no timeouts or errors;
   threshold remains 90%. Every mutated source file scores above 90%.
 - Local Wrangler D1: migration application, repeated application, fixture seed,
@@ -18,7 +18,7 @@ A1-01 and A1-02 implementation and local acceptance checks pass:
   toolchain installs only TypeScript, and the built Worker passes its smoke check.
 
 The initial sandbox restrictions were removed before the mutation and D1 runs.
-The A1-01 and A1-02 collaborator reviews have been addressed; confirmation of
+The A1-01, A1-02 and licence-gate collaborator reviews have been addressed; confirmation of
 the fixes remains pending. No hosted CI run, push, resource provisioning
 or deployment has been performed. These are foundations, not a
 production-ready identity service.

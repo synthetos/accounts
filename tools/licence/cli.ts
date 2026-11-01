@@ -13,15 +13,21 @@ import { readFileSync } from 'node:fs';
 import { checkReports, type PnpmLicenceReport } from './policy.ts';
 import { noRuntimeDependencies, parsePnpmReport } from './reports.ts';
 
-function pnpmJson(args: readonly string[]): PnpmLicenceReport {
+function pnpmOutput(args: readonly string[]): string {
   // Under `pnpm run`, npm_execpath is the pnpm entry script that is running
   // us (Corepack included); otherwise fall back to pnpm on PATH.
   const execPath = process.env['npm_execpath'];
-  const output =
+  return (
     execPath !== undefined && /pnpm/i.test(execPath) && /\.(c|m)?js$/.test(execPath)
       ? execFileSync(process.execPath, [execPath, ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
-      : execFileSync('pnpm', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  return parsePnpmReport(output, args.includes('--prod') && noRuntimeDependencies(process.cwd()));
+      : execFileSync('pnpm', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
+}
+
+function pnpmJson(args: readonly string[]): PnpmLicenceReport {
+  const output = pnpmOutput(args);
+  const emptyProductionAllowed = args.includes('--prod') && output.trim() === 'No licenses in packages found' &&
+    noRuntimeDependencies(process.cwd(), pnpmOutput(['ls', '-r', '--depth', '-1', '--json']));
+  return parsePnpmReport(output, emptyProductionAllowed);
 }
 
 function readJson(path: string): PnpmLicenceReport {
