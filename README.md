@@ -12,8 +12,9 @@ A1-01 through A1-05 are independently accepted. Accounts release gates are being
 - TypeScript, ESLint, dependency-cruiser and dependency licences.
 - 134 unit/schema/policy/type-contract tests, including independent crypto vectors, audit retention
   boundaries and GitHub sign-in failure cases.
-- Auth-core Stryker: **94.54%**, 519 killed / 549 total, 30 survivors, no timeouts or errors;
-  threshold remains 90%. Every mutated source file scores above 90%.
+- Full-scope Stryker: **91.53%**, 2,396 killed, 3 timed out and 222 survivors
+  across 2,621 mutants; no runtime or compilation error statuses. Each identity package
+  independently passes the unchanged 90% threshold (details below).
 - Local Wrangler D1: migration application, repeated application, fixture seed,
   provider/subject uniqueness rejection and audit retention guards.
 - Built Worker on local workerd/D1: complete sign-in with intercepted GitHub requests,
@@ -158,13 +159,29 @@ client registration, device binding and remaining integration requirements.
 The real Chromium browser check is a required secret-free CI job against the build
 artifact. Stryker now mutates auth-core, idp and all accounts Worker executable
 source at the unchanged 90% threshold; declaration files alone are excluded.
-The first expanded baseline scored 75.31%. The network-isolated run at `17c09c3`
-then passed the combined gate at 90.42% (2,367 killed, 3 timed out, 251 survived
-of 2,621), but the Worker alone scored 88.85%. Validation now requires each of
-auth-core, idp and Worker to meet 90% independently, with no rounding and no
-unresolved mutants. New idle-refresh race and production-default tests are being
-validated in another full run; the per-package gate is not yet claimed complete.
-The earlier 94.54% result above covers auth-core only.
+The complete run at `1ef8d25` passed both Stryker's combined gate and the independent
+package gates, with native fetch blocked in every test process:
+
+| Mutation scope | Killed | Timed out | Survived | Score |
+|---|---:|---:|---:|---:|
+| auth-core | 519 | 0 | 30 | 94.54% |
+| idp | 193 | 1 | 13 | 93.72% |
+| accounts Worker | 1,684 | 2 | 179 | 90.40% |
+
+The three timeouts were inspected: two mutations remove the bodies of bounded
+read loops, making them infinite, and one reverses the ULID loop counter. No
+unexplained timeout was counted. The run completed in 20 minutes 46 seconds.
+Reports are written to `reports/release-mutation.json` and `.html`. The package
+check refuses missing groups, unresolved statuses and scores below 90% without
+rounding. It gates each package, not every individual file.
+
+The first expanded baseline was 75.31%; a later 90.42% combined result still had
+only 88.85% on the Worker. The additional tests cover idle-refresh races, write
+throttling, production defaults, response contracts and webhook persistence.
+The interrupted run affected by machine load was discarded. Test files now run
+one at a time inside each of four mutation runners, with a 30-second timeout,
+to bound nested test-process fan-out.
+
 Confidential HTTPS RPs have authenticated RFC 7662 `/introspect`;
 forumbot still needs its request-by-request integration and fail-closed tests.
 A1-05's script-free form documents preserve the exact POST Origin with
