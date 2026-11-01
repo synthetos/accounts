@@ -10,7 +10,7 @@ A1-01 and A1-02 are independently accepted. A1-03 is implemented and awaiting re
 
 - Frozen clean installation with lifecycle scripts disabled.
 - TypeScript, ESLint, dependency-cruiser and dependency licences.
-- 58 unit/schema/policy tests, including independent crypto vectors, audit retention
+- 61 unit/schema/policy tests, including independent crypto vectors, audit retention
   boundaries and GitHub sign-in failure cases.
 - Stryker: **94.54%**, 519 killed / 549 total, 30 survivors, no timeouts or errors;
   threshold remains 90%. Every mutated source file scores above 90%.
@@ -18,6 +18,8 @@ A1-01 and A1-02 are independently accepted. A1-03 is implemented and awaiting re
   provider/subject uniqueness rejection and audit retention guards.
 - Built Worker on local workerd/D1: complete sign-in with intercepted GitHub requests,
   session validation and callback replay refusal. No requests reach GitHub.
+- Real Chromium form-navigation regression, with separate CSP and Origin controls
+  and blocked network fallback. See [browser test instructions](test/browser/README.md).
 - Two clean source-copy builds produce identical bytes; the separate build
   toolchain installs only TypeScript, and the built Worker passes its smoke check.
 
@@ -87,10 +89,19 @@ helper, not a generic access-token or multi-audience OIDC implementation.
 `GET /login` renders a script-free form with a nonce cookie and synchronizer token.
 `POST /login` requires the exact Origin, form token and cookie, limits starts to
 10 per hashed edge IP per 10 minutes, and redirects to GitHub with state and S256
-PKCE. The callback consumes state atomically only when its browser cookie matches.
+PKCE. Each attempt prunes at most 100 expired rate-limit buckets; active windows
+are preserved. The callback consumes state atomically only when its browser cookie matches.
 The verifier is encrypted with AES-GCM and bound to the origin and state/nonce
 hashes. OAuth's callback GET is the protocol exception to the form mutation rule.
 Return paths are restricted local paths; arbitrary redirect URLs are never accepted.
+The login HTML alone uses `form-action 'self' https://github.com` to permit the
+form's redirect chain, and `Referrer-Policy: same-origin` to preserve its POST's
+Origin. Using `no-referrer` on a form document produces `Origin: null` under the
+[Fetch Origin-header algorithm](https://fetch.spec.whatwg.org/#append-a-request-origin-header).
+The exact-Origin check stays mandatory. Redirects, callbacks, account responses
+and errors retain `no-referrer` and `form-action 'self'`; no Referer is sent to
+GitHub. A browser-bound cancellation consumes the state, clears only the pre-auth
+cookie and offers a retry link, without exchanging a code or creating a session.
 
 The adapter uses the [GitHub App user-authorization flow](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app).
 It requests no scope or refresh token, calls `/user` once and persists only the
@@ -123,9 +134,18 @@ No real app registration, secrets or database bindings are included in this repo
 
 Before release, A1-07 must provide those resources, the production tester allowlist
 and staging Access protection. Scheduled retention for old login requests, rate
-buckets, revocation metadata and audit/session rows still needs implementation;
+buckets when there is no login traffic, revocation metadata and audit/session rows still needs implementation;
 webhook delivery cleanup occurs on webhook processing. Account management and
 step-up are A1-05. A1-04 must persist and echo the RP nonce in a forward migration.
+
+A1-07 release gates also include enforcing D37's GitHub numeric-ID allowlist
+at the `Store.signIn(provider, profile, ...)` admission boundary, before identity
+or session creation, with an audited refusal. The allowlist must come from trusted
+configuration/storage, not a request parameter. Extend Stryker's mutation targets
+and test command to `packages/idp` and `workers/accounts/src`, and meet the same
+90% threshold before release. The current 94.54% result covers auth-core only.
+A1-05's script-free form documents must also preserve the exact POST Origin with
+`Referrer-Policy: same-origin`; only the login form gets the GitHub CSP allowance.
 
 Tests use the [RFC 7636 appendix B vector](https://www.rfc-editor.org/rfc/rfc7636#appendix-B)
 and independent Node crypto signing/verification. JWT validation follows the

@@ -27,6 +27,9 @@ export class Store {
   constructor(database: IdentityDatabase) { this.db = database.withSession('first-primary'); }
   private statement(sql: string, ...values: Binding[]): Statement { return this.db.prepare(sql).bind(...values); }
   async rateLimit(bucket: string, now: number): Promise<void> {
+    // Bound maintenance work per attempt; the time index makes this independent of active rows.
+    await this.statement(`DELETE FROM login_rate_limits WHERE bucket_hash IN (
+      SELECT bucket_hash FROM login_rate_limits WHERE window_start<=? ORDER BY window_start LIMIT 100)`, now - 600).run();
     const row = await this.statement(`INSERT INTO login_rate_limits(bucket_hash,window_start,attempts) VALUES (?,?,1)
       ON CONFLICT(bucket_hash) DO UPDATE SET
         attempts=CASE WHEN window_start<=? THEN 1 ELSE attempts+1 END,

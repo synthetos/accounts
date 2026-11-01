@@ -20,13 +20,15 @@ export interface Env {
 const SESSION = '__Host-acct_sid';
 const PREAUTH = '__Host-acct_oauth';
 
-function response(body: string | null, status = 200, extra: HeadersInit = {}, html = false): Response {
+function response(body: string | null, status = 200, extra: HeadersInit = {}, html = false, loginForm = false): Response {
   const headers = new Headers(extra);
   headers.set('Content-Type', html ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8');
   headers.set('Cache-Control', 'no-store');
-  headers.set('Content-Security-Policy', "default-src 'none'; script-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+  // Chromium checks the form's redirect chain. Only the login form can navigate to GitHub.
+  headers.set('Content-Security-Policy', "default-src 'none'; script-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" + (loginForm ? ' https://github.com' : ''));
   headers.set('X-Content-Type-Options', 'nosniff');
-  headers.set('Referrer-Policy', 'no-referrer');
+  // no-referrer on a form document makes its POST Origin null. Preserve the exact-origin guard.
+  headers.set('Referrer-Policy', loginForm ? 'same-origin' : 'no-referrer');
   headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
   headers.set('Permissions-Policy', 'serial=(), usb=(), hid=(), bluetooth=(), camera=(), microphone=(), geolocation=(), payment=()');
   headers.set('Cross-Origin-Opener-Policy', 'same-origin');
@@ -66,8 +68,8 @@ export function createApp(deps: { provider?: IdentityProvider; now?: () => numbe
           const returnTo = returnPath(url.searchParams.has('return_to') ? single(url.searchParams, 'return_to') : '/', origin);
           const nonce = randomToken();
           const csrf = await createFormToken(formKey, nonce, `login:${returnTo}`, now);
-          return response(page(`<p>Sign in with your Synthetos GitHub account.</p><form method="post" action="/login"><input type="hidden" name="csrf" value="${csrf}"><input type="hidden" name="return_to" value="${returnTo}"><button type="submit">Sign in with GitHub</button></form>`),
-            200, { 'Set-Cookie': hostCookie(PREAUTH, nonce, { sameSite: 'Lax', maxAge: 600 }) }, true);
+          return response(page(`<p>Sign in with your Synthetos GitHub account.</p><form method="post" action="/login"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"><button type="submit">Sign in with GitHub</button></form>`),
+            200, { 'Set-Cookie': hostCookie(PREAUTH, nonce, { sameSite: 'Lax', maxAge: 600 }) }, true, true);
         }
         if (url.pathname === '/login' && request.method === 'POST') {
           const nonce = readHostCookie(request.headers.get('Cookie'), PREAUTH); check(nonce, 403);
@@ -87,12 +89,19 @@ export function createApp(deps: { provider?: IdentityProvider; now?: () => numbe
         }
         if (url.pathname === '/auth/github/callback' && request.method === 'GET') {
           // OAuth callback is the protocol-mandated GET exception: nonce-bound single-use state is mandatory.
-          check(!url.searchParams.has('error'));
-          const state = single(url.searchParams, 'state'); const code = single(url.searchParams, 'code');
-          check(state.length === 43 && code.length <= 1024 && !/[\s\x00-\x1f]/.test(code));
+          const state = single(url.searchParams, 'state');
+          const cancelled = url.searchParams.has('error');
+          const code = cancelled ? '' : single(url.searchParams, 'code');
+          check(state.length === 43 && (cancelled || (code.length <= 1024 && !/[\s\x00-\x1f]/.test(code))));
+          if (cancelled) check(single(url.searchParams, 'error') === 'access_denied');
           const nonce = readHostCookie(request.headers.get('Cookie'), PREAUTH); check(nonce);
           const stateHash = await hashToken(state); const nonceHash = await hashToken(nonce);
           const flow = await store.consume(stateHash, nonceHash, callback, now);
+          if (cancelled) {
+            // Only a browser-bound cancellation consumes the flow or clears its cookie.
+            return response(page('<p>Sign-in was cancelled. <a href="/login">Try again</a>.</p>'), 400,
+              { 'Set-Cookie': clearHostCookie(PREAUTH, 'Lax') }, true);
+          }
           const verifier = await unseal(flow.pkce_verifier_enc, stateKey, `${origin}|${stateHash}|${nonceHash}`);
           // Credential exists only during these calls; only allowlisted profile fields reach storage.
           const profile = await provider.profile(await provider.exchange(code, verifier));

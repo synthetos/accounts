@@ -169,7 +169,7 @@ test('login form requires exact Origin, nonce-bound synchronizer token and valid
       assert.equal((await f.call(`/login?return_to=${encodeURIComponent(value)}`)).status, 400);
     }
     const form = await f.form('/account');
-    for (const headers of [{ Origin: 'https://other.example.test' }, { Origin: '' }, { 'Sec-Fetch-Site': 'same-site' },
+    for (const headers of [{ Origin: 'https://other.example.test' }, { Origin: '' }, { Origin: 'null' }, { 'Sec-Fetch-Site': 'same-site' },
       { Cookie: '' }, { 'Content-Type': 'application/json' }]) assert.equal((await f.start(form, headers)).response.status, 403);
     assert.equal((await f.start({ ...form, csrf: 'bad' })).response.status, 403);
     assert.equal((await f.start({ ...form, returnTo: '/' })).response.status, 403);
@@ -185,6 +185,58 @@ test('login starts are limited atomically per hashed edge IP and the window rese
     assert.equal((await f.start()).response.status, 429);
     f.now += 600; assert.equal((await f.start()).response.status, 303);
     assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM login_rate_limits').get().n, 1);
+  } finally { f.close(); }
+});
+
+test('only the login form permits GitHub form navigation and preserves the POST Origin', async () => {
+  const f = fixture();
+  try {
+    const form = await f.form();
+    assert.match(form.response.headers.get('Content-Security-Policy'), /form-action 'self' https:\/\/github\.com$/);
+    assert.equal(form.response.headers.get('Referrer-Policy'), 'same-origin');
+    const flow = await f.start(form);
+    const callback = await f.callback(flow); assert.equal(callback.status, 303);
+    for (const response of [flow.response, callback, await f.call('/missing'),
+      await f.call('/account', { headers: { Cookie: cookie(callback, '__Host-acct_sid') } }),
+      await f.call('/login?return_to=//evil.test')]) {
+      assert.match(response.headers.get('Content-Security-Policy'), /form-action 'self'$/);
+      assert.equal(response.headers.get('Referrer-Policy'), 'no-referrer');
+    }
+  } finally { f.close(); }
+});
+
+test('browser-bound cancellation consumes the flow, clears only pre-auth cookie and offers a retry', async () => {
+  const f = fixture();
+  try {
+    const flow = await f.start();
+    const path = `/auth/github/callback?state=${flow.state}&error=access_denied`;
+    const unbound = await f.call(path); assert.equal(unbound.status, 400); assert.equal(unbound.headers.get('Set-Cookie'), null);
+    assert.equal(f.db.prepare('SELECT used_at FROM auth_requests').get().used_at, null);
+    const response = await f.call(path, { headers: { Cookie: flow.cookie } });
+    assert.equal(response.status, 400); assert.match(response.headers.get('Content-Type'), /text\/html/);
+    assert.match(await response.text(), /Sign-in was cancelled.*href="\/login">Try again/s);
+    assert.deepEqual(response.headers.getSetCookie(), ['__Host-acct_oauth=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0']);
+    assert.equal(f.db.prepare('SELECT used_at FROM auth_requests').get().used_at, f.now);
+    assert.equal((await f.callback(flow)).status, 400);
+    assert.equal(f.exchangeCalls, 0); assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM sessions').get().n, 0);
+    assert.match(response.headers.get('Content-Security-Policy'), /form-action 'self'$/);
+    assert.equal(response.headers.get('Referrer-Policy'), 'no-referrer');
+  } finally { f.close(); }
+});
+
+test('rate-limit cleanup is bounded and removes only expired windows, including the exact boundary', async () => {
+  const f = fixture();
+  try {
+    const insert = f.db.prepare('INSERT INTO login_rate_limits(bucket_hash,window_start,attempts) VALUES (?,?,1)');
+    for (let i = 0; i < 101; i++) insert.run(`old-${i}`, f.now - 600);
+    insert.run('active', f.now - 599);
+    const store = new Store(f.env.IDENTITY);
+    await store.rateLimit('fresh', f.now);
+    assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM login_rate_limits WHERE window_start<=?').get(f.now - 600).n, 1);
+    assert.ok(f.db.prepare("SELECT bucket_hash FROM login_rate_limits WHERE bucket_hash='active'").get());
+    await store.rateLimit('fresh', f.now);
+    assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM login_rate_limits WHERE window_start<=?').get(f.now - 600).n, 0);
+    assert.equal(f.db.prepare("SELECT attempts FROM login_rate_limits WHERE bucket_hash='fresh'").get().attempts, 2);
   } finally { f.close(); }
 });
 
