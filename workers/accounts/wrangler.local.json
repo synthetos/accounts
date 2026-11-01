@@ -1,0 +1,14 @@
+{
+  "name": "accounts-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": false,
+  "d1_databases": [
+    {
+      "binding": "IDENTITY",
+      "database_name": "identity",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "migrations_dir": "../../migrations"
+    }
+  ]
+}

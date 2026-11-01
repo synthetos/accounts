@@ -57,12 +57,27 @@
           "run": "pnpm deps"
         },
         {
+          "name": "Dependency licences",
+          "run": "pnpm licence"
+        },
+        {
           "name": "Unit and policy tests",
           "run": "pnpm test"
         },
         {
           "name": "Auth-core mutation score >=90",
           "run": "pnpm mutation"
+        },
+        {
+          "name": "Install local D1 test toolchain",
+          "run": "pnpm --dir ci/deploy-toolchain install --frozen-lockfile --ignore-scripts"
+        },
+        {
+          "name": "D1 migrations on local workerd",
+          "run": "pnpm test:d1",
+          "env": {
+            "WRANGLER_SEND_METRICS": "false"
+          }
         }
       ]
     },
@@ -235,6 +250,14 @@
           "run": "mkdir payload\ntar -xf artifact/accounts-worker.tar -C payload"
         },
         {
+          "name": "Apply reviewed expand migrations before code",
+          "env": {
+            "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
+            "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
+          },
+          "run": "ci/deploy-toolchain/node_modules/.bin/wrangler d1 migrations apply identity --remote --config payload/wrangler.json --env staging"
+        },
+        {
           "name": "Deploy verified artifact without rebuilding",
           "env": {
             "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
@@ -301,6 +324,14 @@
         {
           "name": "Extract verified artifact",
           "run": "mkdir payload\ntar -xf artifact/accounts-worker.tar -C payload"
+        },
+        {
+          "name": "Apply reviewed expand migrations before code",
+          "env": {
+            "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
+            "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
+          },
+          "run": "ci/deploy-toolchain/node_modules/.bin/wrangler d1 migrations apply identity --remote --config payload/wrangler.json"
         },
         {
           "name": "Deploy verified artifact without rebuilding",

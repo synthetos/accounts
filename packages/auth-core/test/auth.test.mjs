@@ -38,7 +38,7 @@ test('PKCE matches RFC 7636 appendix B, uses S256 and accepts verifier boundarie
   for (const value of ['a'.repeat(43), 'b'.repeat(128), '.'.repeat(43), '~'.repeat(43)]) {
     assert.equal((await pkceChallenge(value)).length, 43);
   }
-  for (const value of ['a'.repeat(42), 'a'.repeat(129), ' '.repeat(43), 'é'.repeat(43)]) {
+  for (const value of ['a'.repeat(42), 'a'.repeat(129), ' '.repeat(43), 'é'.repeat(43), 'a'.repeat(43) + '\n']) {
     await assert.rejects(pkceChallenge(value), authError('invalid_input'));
   }
 });
@@ -63,7 +63,7 @@ test('host cookies have fixed attributes and browser-session cookies omit Max-Ag
 });
 
 test('cookie helpers reject injection, weak tokens, invalid names and duplicate cookie values', () => {
-  for (const name of ['sid', '__Secure-sid', '__Host-', '__Host-a;b', '__Host-a\r\nX: y']) {
+  for (const name of ['sid', '__Secure-sid', '__Host-', '__Host-a;b', '__Host-a\r\nX: y', '__Host-a\n']) {
     assert.throws(() => hostCookie(name, token, { sameSite: 'Lax' }), authError('invalid_cookie'));
     assert.throws(() => clearHostCookie(name, 'Lax'), authError('invalid_cookie'));
     assert.throws(() => readHostCookie(null, name), authError('invalid_cookie'));
@@ -121,13 +121,13 @@ test('form token matches independent HMAC and binds session, action and expiry',
   for (const [session, action, now] of [['session-2', '/logout', 1000], ['session-1', '/delete', 1000], ['session-1', '/logout', 1600], ['session-1', '/logout', 999]]) {
     await assert.rejects(assertFormMutation(r, origin, hmacKey, session, action, issued, now), authError('csrf_denied'));
   }
-  for (const bad of ['', '1600.a', `${issued}.extra`, `x.${mac}`, `1600.${Buffer.alloc(32).toString('base64url')}`, `9007199254740992.${mac}`]) {
+  for (const bad of ['', '1600.a', `${issued}.extra`, `x.${mac}`, `1600\n.${mac}`, `01600.${mac}`, `1600.${Buffer.alloc(32).toString('base64url')}`, `9007199254740992.${mac}`]) {
     await assert.rejects(assertFormMutation(r, origin, hmacKey, 'session-1', '/logout', bad, 1000), authError('csrf_denied'));
   }
   for (const badRequest of [formRequest({ Origin: 'https://evil.synthetos.com' }), formRequest({}, 'PUT'), formRequest({ 'Content-Type': 'application/json' })]) {
     await assert.rejects(assertFormMutation(badRequest, origin, hmacKey, 'session-1', '/logout', issued, 1000), authError('csrf_denied'));
   }
-  for (const now of [-1, 1.5, NaN, Infinity]) await assert.rejects(createFormToken(hmacKey, 's', 'a', now), authError('invalid_input'));
+  for (const now of [-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER]) await assert.rejects(createFormToken(hmacKey, 's', 'a', now), authError('invalid_input'));
   await assert.rejects(createFormToken(hmacKey, '', 'a', 1000), authError('invalid_input'));
   await assert.rejects(createFormToken(hmacKey, 's', '', 1000), authError('invalid_input'));
   const weakKey = await crypto.subtle.importKey('raw', new Uint8Array(16), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);

@@ -12,11 +12,17 @@ sandbox cannot reach the npm registry, and Stryker is not cached. Do not call
 A1-01 complete or enable deployments until a frozen clean install and mutation
 run have passed. CI intentionally requires those gates and cannot pass without them.
 
+A1-02 schema and migration tests also pass with Node's SQLite runtime. The
+separate local D1 acceptance test is implemented but blocked in this session:
+Wrangler/workerd cannot bind localhost (`listen EPERM`). It must pass in an
+environment with local network permission before A1-02 is acceptance-complete.
+
 ## Layout
 
 - `packages/auth-core`: no runtime dependencies; WebCrypto, Fetch request objects
   and cookie serialization. No network calls or persistence.
 - `workers/accounts`: service shell; session and provider routes come in A1-03+.
+- `migrations`: expand-only identity schema and indexes, with synthetic test fixtures.
 - `ci/build-toolchain`: TypeScript only, pinned independently of test tools.
 - `ci/deploy-toolchain`: Wrangler only, pinned separately from the build.
 - `tools`: build reproducibility and policy checks.

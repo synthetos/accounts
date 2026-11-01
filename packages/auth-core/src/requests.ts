@@ -34,7 +34,7 @@ function assertHmacKey(key: CryptoKey): void {
 }
 
 export async function createFormToken(key: CryptoKey, sessionId: string, action: string, now: number): Promise<string> {
-  requireAuth(Number.isSafeInteger(now) && now >= 0, 'invalid_input');
+  requireAuth(Number.isSafeInteger(now) && now >= 0 && now <= Number.MAX_SAFE_INTEGER - 600, 'invalid_input');
   assertHmacKey(key);
   const expiry = now + 600;
   const signature = await crypto.subtle.sign('HMAC', key, formPayload(sessionId, action, expiry));
@@ -53,7 +53,7 @@ export async function assertFormMutation(
     const parts = token.split('.');
     requireAuth(parts.length === 2 && /^[0-9]+$/.test(parts[0] ?? ''), 'csrf_denied');
     const expiry = Number(parts[0]);
-    requireAuth(Number.isSafeInteger(expiry) && expiry > now && expiry <= now + 600, 'csrf_denied');
+    requireAuth(Number.isSafeInteger(expiry) && String(expiry) === parts[0] && expiry > now && expiry <= now + 600, 'csrf_denied');
     const signature = decodeBase64url(parts[1] ?? '');
     requireAuth(signature.length === 32, 'csrf_denied');
     requireAuth(await crypto.subtle.verify('HMAC', key, signature, formPayload(sessionId, action, expiry)), 'csrf_denied');

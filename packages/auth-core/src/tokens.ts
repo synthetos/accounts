@@ -14,7 +14,7 @@ export async function hashToken(token: string): Promise<string> {
 }
 
 export async function pkceChallenge(verifier: string): Promise<string> {
-  requireAuth(/^[A-Za-z0-9._~-]{43,128}$/.test(verifier), 'invalid_input');
+  requireAuth(verifier.length >= 43 && verifier.length <= 128 && !/[^A-Za-z0-9._~-]/.test(verifier), 'invalid_input');
   return base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', utf8(verifier))));
 }
 

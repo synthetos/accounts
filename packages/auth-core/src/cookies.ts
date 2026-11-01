@@ -8,7 +8,7 @@ export interface CookieOptions {
 }
 
 function validName(name: string): void {
-  requireAuth(/^__Host-[A-Za-z0-9_-]+$/.test(name), 'invalid_cookie');
+  requireAuth(name.startsWith('__Host-') && name.length > 7 && !/[^A-Za-z0-9_-]/.test(name), 'invalid_cookie');
 }
 
 function validValue(value: string): void {
