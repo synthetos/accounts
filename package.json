@@ -15,7 +15,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint packages workers tools",
     "deps": "depcruise packages/auth-core/src packages/idp/src workers/accounts/src --config .dependency-cruiser.cjs",
-    "mutation": "stryker run",
+    "mutation": "stryker run && node tools/mutation/check-score.mjs",
     "build": "node tools/build.mjs",
     "check": "pnpm typecheck && pnpm lint && pnpm deps && pnpm licence && pnpm test && pnpm mutation && pnpm build",
     "licence": "node tools/licence/cli.ts"

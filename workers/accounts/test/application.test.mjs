@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fixture, origin } from './fixture.mjs';
+import { fixture, origin, cookie, sha } from './fixture.mjs';
 import { createApp } from '../src/app.ts';
 import { runRpc } from '../src/rpc.ts';
 import { randomToken } from '../../../packages/auth-core/src/index.ts';
@@ -53,5 +53,59 @@ test('RPC and HTTP failures never serialize database internals or credentials',a
     const protocol=await f.app.fetch(new Request(origin+'/introspect',{method:'POST'}),bad);assert.equal(protocol.status,503);assert.deepEqual(await protocol.json(),{error:'server_error'});
     await assert.rejects(runRpc(bad,f.now).validateSession(randomToken()),{message:'service_unavailable'});
     await assert.rejects(runRpc(f.env,f.now).validateSession('invalid'),{message:'request_refused'});
+  }finally{f.close();}
+});
+
+test('production clock and provider defaults build a usable login without contacting GitHub',async(t)=>{
+  const f=fixture();try{
+    t.mock.method(Date,'now',()=>f.now*1000+999);
+    const app=createApp();
+    const response=await app.fetch(new Request(origin+'/login'),f.env);
+    assert.equal(response.status,200);
+    const csrf=(await response.text()).match(/name="csrf" value="([^"]+)"/)[1];
+    assert.equal(Number(csrf.split('.')[0]),f.now+600);
+    const submitted=await app.fetch(new Request(origin+'/login',{method:'POST',headers:{Origin:origin,
+      Cookie:cookie(response,'__Host-acct_oauth'),'Content-Type':'application/x-www-form-urlencoded'},
+      body:new URLSearchParams({csrf,return_to:'/'})}),f.env);
+    assert.equal(submitted.status,303);
+    const target=new URL(submitted.headers.get('Location'));
+    assert.equal(target.origin,'https://github.com');assert.equal(target.pathname,'/login/oauth/authorize');
+    assert.equal(target.searchParams.get('client_id'),f.env.GITHUB_CLIENT_ID);
+    assert.equal(target.searchParams.get('redirect_uri'),origin+'/auth/github/callback');
+    assert.equal(f.db.prepare('SELECT created_at FROM auth_requests').get().created_at,f.now);
+  }finally{f.close();}
+});
+
+test('response media types, disabled state and authentication refusals retain their public contracts',async()=>{
+  const f=fixture();try{
+    const disabled=await f.app.fetch(new Request(origin+'/login'),{...f.env,AUTH_ENABLED:'false'});
+    assert.equal(disabled.status,503);assert.equal(await disabled.text(),'Identity service is not enabled.');
+    assert.equal(disabled.headers.get('Content-Type'),'text/plain; charset=utf-8');
+    assert.equal((await f.call('/missing')).headers.get('Content-Type'),'text/plain; charset=utf-8');
+    const metadata=await f.call('/.well-known/openid-configuration');
+    assert.equal(metadata.headers.get('Content-Type'),'application/json');
+    const refused=await f.call('/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/x-www-form-urlencoded',Cookie:'__Host-acct_oauth=invalid'},body:'csrf=bad'});
+    assert.equal(refused.status,403);assert.equal(await refused.text(),'request_refused');
+    const post=await f.call('/missing',{method:'POST'});assert.equal(post.status,404);
+    assert.equal((await f.call('/webhooks/github')).status,404);
+    const invalid=await f.call('/introspect',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded',Authorization:'Basic '+btoa('unknown:secret')},body:'token=x'});
+    assert.equal(invalid.headers.get('Content-Type'),'application/json');
+    assert.equal(invalid.headers.get('WWW-Authenticate'),'Basic realm="accounts"');
+    const badType=await f.call('/introspect',{method:'POST'});
+    assert.equal(badType.headers.has('WWW-Authenticate'),false);
+  }finally{f.close();}
+});
+
+test('webhook persistence hashes the exact body and delivery and reports replay without leaking it',async()=>{
+  const f=fixture();try{
+    f.env.GITHUB_WEBHOOK_SECRET='k'.repeat(32);
+    const body=JSON.stringify({action:'revoked',sender:{id:12345}});
+    const delivered=await f.webhook('delivery-contract',body,{'Content-Type':'application/json ; charset=utf-8'});
+    assert.equal(delivered.status,204);
+    const row=f.db.prepare('SELECT delivery_hash,payload_hash FROM webhook_deliveries').get();
+    assert.equal(row.delivery_hash,sha('delivery-contract'));assert.equal(row.payload_hash,sha(body));
+    const replay=await f.webhook('delivery-contract',body);assert.equal(replay.status,409);
+    assert.equal(await replay.text(),'webhook_not_applied');
+    const noType=await f.webhook('no-type',body,{'Content-Type':''});assert.equal(noType.status,400);
   }finally{f.close();}
 });

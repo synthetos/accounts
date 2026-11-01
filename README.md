@@ -10,7 +10,7 @@ A1-01 through A1-05 are independently accepted. Accounts release gates are being
 
 - Frozen clean installation with lifecycle scripts disabled.
 - TypeScript, ESLint, dependency-cruiser and dependency licences.
-- 126 unit/schema/policy/type-contract tests, including independent crypto vectors, audit retention
+- 134 unit/schema/policy/type-contract tests, including independent crypto vectors, audit retention
   boundaries and GitHub sign-in failure cases.
 - Auth-core Stryker: **94.54%**, 519 killed / 549 total, 30 survivors, no timeouts or errors;
   threshold remains 90%. Every mutated source file scores above 90%.
@@ -158,10 +158,14 @@ client registration, device binding and remaining integration requirements.
 The real Chromium browser check is a required secret-free CI job against the build
 artifact. Stryker now mutates auth-core, idp and all accounts Worker executable
 source at the unchanged 90% threshold; declaration files alone are excluded.
-The first expanded baseline scored 75.31% (1,971 killed, 3 timed out, 647 survived
-of 2,621), correctly failing the 90% gate. The stronger suite is being rerun with native fetch blocked in every test process; no
-expanded passing score is claimed yet. The earlier 94.54% result above covers
-auth-core only. Confidential HTTPS RPs have authenticated RFC 7662 `/introspect`;
+The first expanded baseline scored 75.31%. The network-isolated run at `17c09c3`
+then passed the combined gate at 90.42% (2,367 killed, 3 timed out, 251 survived
+of 2,621), but the Worker alone scored 88.85%. Validation now requires each of
+auth-core, idp and Worker to meet 90% independently, with no rounding and no
+unresolved mutants. New idle-refresh race and production-default tests are being
+validated in another full run; the per-package gate is not yet claimed complete.
+The earlier 94.54% result above covers auth-core only.
+Confidential HTTPS RPs have authenticated RFC 7662 `/introspect`;
 forumbot still needs its request-by-request integration and fail-closed tests.
 A1-05's script-free form documents preserve the exact POST Origin with
 `Referrer-Policy: same-origin`; only the login form gets the GitHub CSP allowance.
