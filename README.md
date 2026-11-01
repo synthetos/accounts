@@ -6,29 +6,31 @@ to a 503 response until explicitly configured; no authentication endpoint is liv
 
 ## Current validation status
 
-A1-01 through A1-05 are independently accepted. Accounts release gates are being validated:
+A1-01 through A1-05 are independently accepted. The accounts release-gate implementation
+at `3d791a6` passes local validation and awaits independent review:
 
 - Frozen clean installation with lifecycle scripts disabled.
 - TypeScript, ESLint, dependency-cruiser and dependency licences.
 - 138 unit/schema/policy/type-contract tests, including independent crypto vectors, audit retention
   boundaries and GitHub sign-in failure cases.
-- Previous full-scope Stryker at `1ef8d25`: **91.53%**, 2,396 killed, 3 timed out and 222 survivors
-  across 2,621 mutants; no runtime or compilation error statuses. Each identity package
+- Full-scope Stryker at `3d791a6`: **91.47%**, 2,420 killed, 3 timed out and 226 survivors
+  across 2,649 mutants; no runtime or compilation error statuses. Each identity package
   independently passes the unchanged 90% threshold (details below).
 
 - Local Wrangler D1: migration application, repeated application, fixture seed,
   provider/subject uniqueness rejection and audit retention guards.
 - Built Worker on local workerd/D1: complete sign-in with intercepted GitHub requests,
   session validation and callback replay refusal; OIDC/JWKS, concurrent redemption,
-  named/default/wrong RPC binding checks and forum/run isolation; same-subject
+  named/default/wrong RPC binding checks and forum/run isolation; introspection claims
+  and its 600/601 per-client quota boundary; same-subject
   step-up success, replay and wrong-subject revocation. No requests reach GitHub.
 - Five real Chromium login/account form-navigation controls, checking CSP and Origin
   and blocked network fallback. See [browser test instructions](test/browser/README.md).
-- Two clean source-copy builds produce identical bytes; the separate build
+- Two clean source-copy builds produce 47 byte-identical files; the separate build
   toolchain installs only TypeScript, and the built Worker passes its smoke check.
 
-The subsequent introspection rate-limit/response-contract revision is being
-validated; the previous mutation result is not a score for that revision.
+The validation includes the introspection rate-limit/response-contract revision,
+three local D1/workerd gates and a staging Wrangler dry run with bundling disabled.
 
 The initial sandbox restrictions were removed before the mutation and D1 runs.
 Independent review accepted A1-03 at `6b240ff`, A1-04 at `7c29b4e`/`7e7db46`,
@@ -163,18 +165,19 @@ client registration, device binding and remaining integration requirements.
 The real Chromium browser check is a required secret-free CI job against the build
 artifact. Stryker now mutates auth-core, idp and all accounts Worker executable
 source at the unchanged 90% threshold; declaration files alone are excluded.
-The complete run at `1ef8d25` passed both Stryker's combined gate and the independent
+The complete run at `3d791a6` passed both Stryker's combined gate and the independent
 package gates, with native fetch blocked in every test process:
 
 | Mutation scope | Killed | Timed out | Survived | Score |
 |---|---:|---:|---:|---:|
 | auth-core | 519 | 0 | 30 | 94.54% |
 | idp | 193 | 1 | 13 | 93.72% |
-| accounts Worker | 1,684 | 2 | 179 | 90.40% |
+| accounts Worker | 1,708 | 2 | 183 | 90.33% |
 
 The three timeouts were inspected: two mutations remove the bodies of bounded
 read loops, making them infinite, and one reverses the ULID loop counter. No
-unexplained timeout was counted. The run completed in 20 minutes 46 seconds.
+unexplained timeout was counted. The run completed in 24 minutes 17 seconds.
+All 17 source snapshots in the report match the committed runtime files.
 Reports are written to `reports/release-mutation.json` and `.html`. The package
 check refuses missing groups, unresolved statuses and scores below 90% without
 rounding. It gates each package, not every individual file.
