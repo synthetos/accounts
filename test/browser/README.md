@@ -38,3 +38,8 @@ The three checks distinguish browser behavior from server-side status assertions
 
 The test fails if any interception handler fails. This browser check is a local
 acceptance test; it is not yet wired into hosted CI.
+
+The harness also checks account forms: actual same-origin POST followed by an
+explicit GitHub hyperlink succeeds with self-only form-action; changing the form
+document to no-referrer produces Origin:null and a 403. The signed-in browser
+fixture is synthetic and belongs only to the loopback test server.

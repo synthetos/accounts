@@ -15,6 +15,10 @@ origin = 'https://accounts.example.test'
 
 def exercise(browser, control):
     context = browser.new_context(service_workers='block')
+    account_case = control.startswith('account-')
+    if account_case:
+        context.add_cookies([{'name':'__Host-acct_sid','value':base64.urlsafe_b64encode(bytes([9])*32).decode().rstrip('='),
+                             'url':origin,'secure':True,'httpOnly':True,'sameSite':'Lax'}])
     page = context.new_page()
     violations, destinations, requests, handler_errors = [], [], [], []
     page.on('console', lambda message: violations.append(message.text) if 'form-action' in message.text else None)
@@ -48,11 +52,15 @@ def exercise(browser, control):
                                  'origin': incoming.get('origin'), 'has_cookie': 'cookie' in incoming})
                 headers = [(name.lower(), value) for name, value in result.getheaders()
                            if name.lower() not in ['connection', 'transfer-encoding', 'content-length']]
-                if request['method'] == 'GET' and parsed.path == '/login':
+                if request['method'] == 'GET' and parsed.path == ('/account' if account_case else '/login'):
+                    if account_case:
+                        actual_headers = dict(headers)
+                        assert actual_headers['referrer-policy'] == 'same-origin'
+                        assert actual_headers['content-security-policy'].endswith("form-action 'self'")
                     if control == 'self-only':
                         headers = [(name, value.replace("form-action 'self' https://github.com", "form-action 'self'"))
                                    if name == 'content-security-policy' else (name, value) for name, value in headers]
-                    elif control == 'no-referrer':
+                    elif control in ['no-referrer','account-no-referrer']:
                         headers = [(name, 'no-referrer' if name == 'referrer-policy' else value) for name, value in headers]
                 fulfill(request_id, result.status, headers, result.read())
             finally:
@@ -64,11 +72,13 @@ def exercise(browser, control):
     cdp.on('Fetch.requestPaused', intercept)
     cdp.send('Fetch.enable', {'patterns': [{'urlPattern': '*', 'requestStage': 'Request'}]})
     try:
-        page.goto(origin + '/login')
+        page.goto(origin + ('/account' if account_case else '/login'))
         page.wait_for_load_state('networkidle')
-        button = page.get_by_role('button', name='Sign in with GitHub')
+        button = page.get_by_role('button', name='Verify with GitHub' if account_case else 'Sign in with GitHub')
         assert button.count() == 1
         button.click()
+        if control == 'account-actual':
+            page.get_by_role('link',name='Continue to GitHub').click()
         navigated = True
         try:
             page.wait_for_url('https://github.com/login/oauth/authorize?**', timeout=3000)
@@ -81,12 +91,12 @@ def exercise(browser, control):
             assert posts[0]['status'] == 303 and posts[0]['origin'] == origin, posts
             assert not navigated and not destinations, 'Restricted policy unexpectedly allowed GitHub navigation'
             assert violations, 'No CSP form-action violation observed'
-        elif control == 'no-referrer':
+        elif control in ['no-referrer','account-no-referrer']:
             assert posts[0]['status'] == 403 and posts[0]['origin'] == 'null', posts
             assert not navigated and not destinations
             assert not violations, violations
         else:
-            assert posts[0]['status'] == 303 and posts[0]['origin'] == origin, posts
+            assert posts[0]['status'] == (200 if account_case else 303) and posts[0]['origin'] == origin, posts
             assert navigated and len(destinations) == 1, {'requests': requests, 'url': page.url, 'violations': violations}
             assert not violations, violations
             assert page.title() == 'Stub GitHub authorization'
@@ -103,7 +113,7 @@ with sync_playwright() as playwright:
                                         proxy={'server': 'http://127.0.0.1:1'})
     try:
         print(json.dumps({'chromium': browser.version}))
-        for control in ['actual', 'self-only', 'no-referrer']:
+        for control in ['actual', 'self-only', 'no-referrer', 'account-actual', 'account-no-referrer']:
             exercise(browser, control)
     finally:
         browser.close()

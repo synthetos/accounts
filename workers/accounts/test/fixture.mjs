@@ -37,7 +37,7 @@ function fixture() {
     RATE_KEY: Buffer.alloc(32, 3).toString('base64url'), GITHUB_WEBHOOK_SECRET: 'fixture-webhook-secret-long-enough', IDENTITY: identity };
   let now = 2_000_000_000; let expectedChallenge; let exchangeCalls = 0; let profileCalls = 0; let failure = false;
   let profile = { id: 12345, login: 'fixture-user', name: 'Fixture User', avatar_url: 'https://avatars.githubusercontent.com/u/12345', email: 'must-discard@example.test' };
-  const outbound = [];
+  const outbound = []; let onProfile = async () => {};
   const provider = new GitHubProvider({ clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET,
     redirectUri: `${origin}/auth/github/callback`, fetch: async (url, options) => {
       outbound.push({ url, options });
@@ -55,7 +55,7 @@ function fixture() {
       }
       assert.equal(url, 'https://api.github.com/user'); profileCalls++;
       assert.equal(options.headers.Authorization, `Bearer ${rawToken}`);
-      return Response.json(profile);
+      await onProfile(); return Response.json(profile);
     } });
   const app = createApp({ provider, now: () => now });
   const call = (path, init = {}) => app.fetch(new Request(`${origin}${path}`, init), env);
@@ -82,6 +82,7 @@ function fixture() {
   }
   return { db, env, app, call, form, start, callback, webhook, outbound, close: () => db.close(),
     get now() { return now; }, set now(value) { now = value; }, set profile(value) { profile = value; },
+    set expectedChallenge(value) { expectedChallenge = value; }, set onProfile(value) { onProfile = value; },
     set failure(value) { failure = value; }, get primaryReads() { return primaryReads; },
     get exchangeCalls() { return exchangeCalls; }, get profileCalls() { return profileCalls; } };
 }

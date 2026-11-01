@@ -61,8 +61,9 @@ export class OidcStore {
           AND c.kind=? AND c.secret_hash IS ? AND r.type='text' AND r.value=auth_codes.redirect_uri)`,
       now, attempt, input.codeHash, input.client, input.redirectUri, input.challenge, now, now, now, now, now, input.kind, input.secretHash),
       // A unique attempt marker, not used_at=now: two exchanges in the same second cannot both mint sessions.
-      this.q(`INSERT INTO sessions(token_hash,id,user_id,client,device_record_id,created_at,last_seen_at,idle_expires_at,abs_expires_at,auth_at,shared_computer,step_up_at)
-        SELECT ?,?,user_id,client,?,?,?,?,?,auth_at,?,step_up_at FROM auth_codes WHERE redemption_id=?`,
+      this.q(`INSERT INTO sessions(token_hash,id,user_id,client,device_record_id,created_at,last_seen_at,idle_expires_at,abs_expires_at,auth_at,shared_computer,step_up_at,sign_in_identity_id,ua_summary,country)
+        SELECT ?,?,user_id,client,?,?,?,?,?,auth_at,?,step_up_at,(SELECT sign_in_identity_id FROM sessions WHERE id=auth_codes.origin_session_id),
+        (SELECT ua_summary FROM sessions WHERE id=auth_codes.origin_session_id),(SELECT country FROM sessions WHERE id=auth_codes.origin_session_id) FROM auth_codes WHERE redemption_id=?`,
       input.tokenHash, id, input.device, now, now, now + (input.shared ? 3600 : RP_IDLE), now + RP_ABSOLUTE, input.shared ? 1 : 0, attempt),
       this.q(`INSERT INTO security_audit(id,user_id,at,session_id,client,event)
         SELECT ?,user_id,?,id,client,'session.created' FROM sessions WHERE id=?`, `aud_${randomToken()}`, now, id),

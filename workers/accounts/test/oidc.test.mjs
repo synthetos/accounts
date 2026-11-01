@@ -307,3 +307,29 @@ test('default HTTP handler has no RPC dispatch route even with a valid run sessi
     assert.equal(f.db.prepare('SELECT status FROM users').get().status,'active');
   } finally { f.close(); }
 });
+
+test('malformed percent-encoded Basic credentials and unknown clients consistently return invalid_client',async()=>{
+  const f=await setup();
+  try {
+    const flow=await f.authorize('forum-synthetos');
+    for(const credential of ['forum-synthetos:%','%:forum-secret','forum-synthetos:%FF','forum-synthetos:','forum-synthetos:%0A','unknown:forum-secret']) {
+      const response=await f.forumExchange(flow,{}, {Authorization:`Basic ${btoa(credential)}`});
+      assert.equal(response.status,401,credential);assert.deepEqual(await response.json(),{error:'invalid_client'});
+      assert.equal(response.headers.get('WWW-Authenticate'),'Basic realm="accounts"');
+    }
+    assert.equal(f.db.prepare('SELECT used_at FROM auth_codes').get().used_at,null);
+    assert.equal((await f.forumExchange(flow)).status,200);
+  } finally {f.close();}
+});
+
+test('unknown client and wrong known-client secret both execute the HMAC verification path',async()=>{
+  const f=await setup();const descriptor=Object.getOwnPropertyDescriptor(crypto.subtle,'verify');const verify=crypto.subtle.verify;let comparisons=0;
+  try {
+    const flow=await f.authorize('forum-synthetos');
+    crypto.subtle.verify=async function(...args){if(args[0]==='HMAC')comparisons++;return verify.apply(this,args);};
+    for(const credential of ['unknown:forum-secret','forum-synthetos:wrong-secret']){
+      comparisons=0;const r=await f.forumExchange(flow,{}, {Authorization:`Basic ${btoa(credential)}`});
+      assert.equal(r.status,401);assert.equal(comparisons,1);
+    }
+  } finally {if(descriptor)Object.defineProperty(crypto.subtle,'verify',descriptor);else delete crypto.subtle.verify;f.close();}
+});

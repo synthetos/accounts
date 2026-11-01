@@ -5,6 +5,7 @@ import { utf8 } from '../../../packages/auth-core/src/encoding.ts';
 import { ACCOUNT_ABSOLUTE, Store, type IdentityDatabase } from './store.ts';
 import { check, escapeHtml, HttpError, key, keyedHash, readBody, returnPath, seal, single, unseal } from './security.ts';
 
+import { account, coarseClient } from './account.ts';
 import { oidc } from './oidc.ts';
 
 export interface Env {
@@ -24,7 +25,7 @@ export interface Env {
 const SESSION = '__Host-acct_sid';
 const PREAUTH = '__Host-acct_oauth';
 
-function response(body: string | null, status = 200, extra: HeadersInit = {}, html = false, loginForm = false): Response {
+function response(body: string | null, status = 200, extra: HeadersInit = {}, html = false, loginForm = false, formHtml = loginForm): Response {
   const headers = new Headers(extra);
   if (!headers.has('Content-Type')) headers.set('Content-Type', html ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8');
   headers.set('Cache-Control', 'no-store');
@@ -32,7 +33,7 @@ function response(body: string | null, status = 200, extra: HeadersInit = {}, ht
   headers.set('Content-Security-Policy', "default-src 'none'; script-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" + (loginForm ? ' https://github.com' : ''));
   headers.set('X-Content-Type-Options', 'nosniff');
   // no-referrer on a form document makes its POST Origin null. Preserve the exact-origin guard.
-  headers.set('Referrer-Policy', loginForm ? 'same-origin' : 'no-referrer');
+  headers.set('Referrer-Policy', formHtml ? 'same-origin' : 'no-referrer');
   headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
   headers.set('Permissions-Policy', 'serial=(), usb=(), hid=(), bluetooth=(), camera=(), microphone=(), geolocation=(), payment=()');
   headers.set('Cross-Origin-Opener-Policy', 'same-origin');
@@ -58,7 +59,8 @@ export function createApp(deps: { provider?: IdentityProvider; now?: () => numbe
           /^[1-9][0-9]*$/.test(env.GITHUB_APP_ID) && env.GITHUB_APP_ID !== '5559540' &&
           env.OAUTH_STATE_KEY && env.FORM_KEY && env.RATE_KEY && env.GITHUB_WEBHOOK_SECRET &&
           utf8(env.GITHUB_WEBHOOK_SECRET).length >= 32, 503, 'service_unavailable');
-        const now = (deps.now ?? (() => Math.floor(Date.now() / 1000)))();
+        const clock = deps.now ?? (() => Math.floor(Date.now() / 1000));
+        const now = clock();
         check(Number.isSafeInteger(now) && now >= 0 && now <= 281_474_976_710, 503, 'service_unavailable');
         const callback = `${origin}/auth/github/callback`;
         const provider = deps.provider ?? new GitHubProvider({ clientId: env.GITHUB_CLIENT_ID,
@@ -70,6 +72,9 @@ export function createApp(deps: { provider?: IdentityProvider; now?: () => numbe
 
         const protocolResponse = await oidc(request, env, now);
         if (protocolResponse) return response(protocolResponse.body === null ? null : await protocolResponse.text(), protocolResponse.status, protocolResponse.headers);
+
+        const management = await account(request, env, provider, now, formKey, stateKey, clock);
+        if (management) return response(management.html ? page(management.body ?? '') : management.body, management.status, management.headers, management.html, false, management.form);
 
         if (url.pathname === '/login' && request.method === 'GET') {
           const returnTo = returnPath(url.searchParams.has('return_to') ? single(url.searchParams, 'return_to') : '/', origin);
@@ -113,7 +118,7 @@ export function createApp(deps: { provider?: IdentityProvider; now?: () => numbe
           // Credential exists only during these calls; only allowlisted profile fields reach storage.
           const profile = await provider.profile(await provider.exchange(code, verifier));
           const token = randomToken();
-          await store.signIn(provider.name, profile, await hashToken(token), now, flow.created_at);
+          await store.signIn(provider.name, profile, await hashToken(token), now, flow.created_at, coarseClient(request));
           const headers = new Headers({ Location: returnPath(flow.return_to, origin) });
           headers.append('Set-Cookie', hostCookie(SESSION, token, { sameSite: 'Lax', maxAge: ACCOUNT_ABSOLUTE }));
           headers.append('Set-Cookie', clearHostCookie(PREAUTH, 'Lax'));
@@ -136,12 +141,6 @@ export function createApp(deps: { provider?: IdentityProvider; now?: () => numbe
           try { await store.revokeFromWebhook(await hashToken(delivery), digest, String(payload.sender?.id), now); }
           catch { throw new HttpError(409, 'webhook_not_applied'); }
           return response(null, 204);
-        }
-        if ((url.pathname === '/' || url.pathname === '/account') && request.method === 'GET') {
-          const token = readHostCookie(request.headers.get('Cookie'), SESSION);
-          const session = token ? await store.validate(await hashToken(token), now) : null;
-          if (session === null) return response(null, 303, { Location: '/login', 'Set-Cookie': clearHostCookie(SESSION, 'Lax') });
-          return response(page(`<p>Signed in as ${escapeHtml(session.display_name)}.</p>`), 200, {}, true);
         }
         return response('Not found.', 404);
       } catch (error) {

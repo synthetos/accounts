@@ -6,11 +6,11 @@ to a 503 response until explicitly configured; no authentication endpoint is liv
 
 ## Current validation status
 
-A1-01 through A1-03 are independently accepted. A1-04 is implemented for review:
+A1-01 through A1-04 are independently accepted. A1-05 is implemented for review:
 
 - Frozen clean installation with lifecycle scripts disabled.
 - TypeScript, ESLint, dependency-cruiser and dependency licences.
-- 78 unit/schema/policy/type-contract tests, including independent crypto vectors, audit retention
+- 89 unit/schema/policy/type-contract tests, including independent crypto vectors, audit retention
   boundaries and GitHub sign-in failure cases.
 - Auth-core Stryker: **94.54%**, 519 killed / 549 total, 30 survivors, no timeouts or errors;
   threshold remains 90%. Every mutated source file scores above 90%.
@@ -18,15 +18,16 @@ A1-01 through A1-03 are independently accepted. A1-04 is implemented for review:
   provider/subject uniqueness rejection and audit retention guards.
 - Built Worker on local workerd/D1: complete sign-in with intercepted GitHub requests,
   session validation and callback replay refusal; OIDC/JWKS, concurrent redemption,
-  named/default/wrong RPC binding checks and forum/run isolation. No requests reach GitHub.
-- Real Chromium form-navigation regression, with separate CSP and Origin controls
+  named/default/wrong RPC binding checks and forum/run isolation; same-subject
+  step-up success, replay and wrong-subject revocation. No requests reach GitHub.
+- Five real Chromium login/account form-navigation controls, checking CSP and Origin
   and blocked network fallback. See [browser test instructions](test/browser/README.md).
 - Two clean source-copy builds produce identical bytes; the separate build
   toolchain installs only TypeScript, and the built Worker passes its smoke check.
 
 The initial sandbox restrictions were removed before the mutation and D1 runs.
-The independent collaborator accepted A1-03 at `6b240ff`. A1-04 independent
-review remains required before building on it.
+The independent collaborator accepted A1-03 at `6b240ff`. A1-04 was accepted at `7c29b4e`; the `7e7db46` follow-up and A1-05 await
+independent review.
 No hosted CI run, push, resource provisioning
 or deployment has been performed. These are foundations, not a
 production-ready identity service.
@@ -38,7 +39,7 @@ production-ready identity service.
 - `packages/idp`: provider interface and GitHub App adapter; zero npm dependencies.
 - `workers/accounts`: browser-bound sign-in, accounts sessions, revocation webhook
   and storage, plus authorization-code OIDC and the named run RPC entrypoint.
-  Account-management pages and step-up come in A1-05.
+  Server-rendered account management, linked identities and step-up are implemented.
 - `migrations`: forward identity schema migrations and indexes, with synthetic test fixtures.
 - `ci/build-toolchain`: TypeScript only, pinned independently of test tools.
 - `ci/deploy-toolchain`: Wrangler only, pinned separately from the build.
@@ -100,7 +101,7 @@ The login HTML alone uses `form-action 'self' https://github.com` to permit the
 form's redirect chain, and `Referrer-Policy: same-origin` to preserve its POST's
 Origin. Using `no-referrer` on a form document produces `Origin: null` under the
 [Fetch Origin-header algorithm](https://fetch.spec.whatwg.org/#append-a-request-origin-header).
-The exact-Origin check stays mandatory. Redirects, callbacks, account responses
+The exact-Origin check stays mandatory. Redirects, callbacks, non-form responses
 and errors retain `no-referrer` and `form-action 'self'`; no Referer is sent to
 GitHub. A browser-bound cancellation consumes the state, clears only the pre-auth
 cookie and offers a retry link, without exchanging a code or creating a session.
@@ -138,7 +139,8 @@ Before release, A1-07 must provide those resources, the production tester allowl
 and staging Access protection. Scheduled retention for old login requests, rate
 buckets when there is no login traffic, revocation metadata and audit/session rows still needs implementation;
 webhook delivery cleanup occurs on webhook processing. Account management and
-step-up are A1-05. A1-04 persists and echoes the RP nonce in migration `0005`.
+step-up are implemented in A1-05; full export and deletion processing remain A2-08.
+See [account management](docs/ACCOUNT_MANAGEMENT.md). A1-04 persists and echoes the RP nonce in migration `0005`.
 See [the RP contract](docs/RP_CONTRACT.md) for supported endpoints, RPC methods,
 client registration, device binding and remaining integration requirements.
 
@@ -149,7 +151,7 @@ or session creation, with an audited refusal. The allowlist must come from trust
 configuration/storage, not a request parameter. Extend Stryker's mutation targets
 and test command to `packages/idp` and `workers/accounts/src`, and meet the same
 90% threshold before release. The current 94.54% result covers auth-core only.
-A1-05's script-free form documents must also preserve the exact POST Origin with
+A1-05's script-free form documents preserve the exact POST Origin with
 `Referrer-Policy: same-origin`; only the login form gets the GitHub CSP allowance.
 
 Tests use the [RFC 7636 appendix B vector](https://www.rfc-editor.org/rfc/rfc7636#appendix-B)

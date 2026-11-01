@@ -8,7 +8,7 @@ export interface ProviderProfile {
 /** Provider credentials are transient: never return them to a browser or persistence. */
 export interface IdentityProvider {
   readonly name: string;
-  authorizeUrl(state: string, challenge: string): string;
+  authorizeUrl(state: string, challenge: string, options?: { selectAccount: boolean }): string;
   exchange(code: string, verifier: string): Promise<string>;
   profile(credential: string): Promise<ProviderProfile>;
 }
@@ -57,10 +57,11 @@ export class GitHubProvider implements IdentityProvider {
       callback.pathname !== '/auth/github/callback' || !options.clientId || !options.clientSecret) throw new ProviderError();
     this.options = options;
   }
-  authorizeUrl(state: string, challenge: string): string {
+  authorizeUrl(state: string, challenge: string, options?: { selectAccount: boolean }): string {
     const url = new URL('https://github.com/login/oauth/authorize');
     url.search = new URLSearchParams({ client_id: this.options.clientId, redirect_uri: this.options.redirectUri,
       state, code_challenge: challenge, code_challenge_method: 'S256' }).toString();
+    if (options?.selectAccount) url.searchParams.set('prompt', 'select_account');
     return url.href;
   }
   async exchange(code: string, verifier: string): Promise<string> {

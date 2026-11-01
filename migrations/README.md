@@ -79,4 +79,10 @@ deployment remain part of A1-07. No resources have been created by this task.
 `0005` also adds the origin session FK, unique redemption marker, step-up columns
 and encrypted browser-bound authorization continuations. Legacy codes without an
 origin session cannot be exchanged. The step-up marker has no ordinary-login writer;
-A1-05 must set it only after a fresh same-subject provider round trip.
+A1-05 sets it only after a fresh same-subject provider round trip.
+
+`0006` adds browser/session-bound management requests and sign-in identity provenance.
+Identity unlink revokes matching sessions before deleting the identity; legacy
+sessions with null provenance are revoked conservatively. The FK uses SET NULL
+so revoked session records survive unlink for their retention period. Management
+requests expire after ten minutes and are pruned in bounded batches on creation.

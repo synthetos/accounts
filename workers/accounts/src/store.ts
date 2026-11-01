@@ -17,7 +17,7 @@ export interface LoginRequest {
   state_hash: string; browser_nonce_hash: string; pkce_verifier_enc: string; return_to: string; created_at: number;
 }
 export interface AccountSession {
-  id: string; user_id: string; display_name: string; last_seen_at: number; abs_expires_at: number;
+  id: string; user_id: string; display_name: string; last_seen_at: number; abs_expires_at: number; step_up_at: number | null;
 }
 export const ACCOUNT_IDLE = 14 * 86400;
 export const ACCOUNT_ABSOLUTE = 30 * 86400;
@@ -50,7 +50,7 @@ export class Store {
     check(row !== null, 400, 'sign_in_refused');
     return row;
   }
-  async signIn(provider: string, profile: ProviderProfile, tokenHash: string, now: number, startedAt: number): Promise<void> {
+  async signIn(provider: string, profile: ProviderProfile, tokenHash: string, now: number, startedAt: number, metadata?: { device: string; country: string | null }): Promise<void> {
     const candidate = userId(now); const identity = `idn_${randomToken()}`; const session = `ses_${randomToken()}`;
     const results = await this.db.batch([
       this.statement(`INSERT INTO users(id,display_name,avatar_url,created_at)
@@ -63,18 +63,18 @@ export class Store {
       this.statement(`UPDATE users SET display_name=?,avatar_url=? WHERE status='active'
         AND id=(SELECT user_id FROM identities WHERE provider=? AND provider_subject=?)`,
       profile.displayName, profile.avatarUrl, provider, profile.subject),
-      this.statement(`INSERT INTO sessions(token_hash,id,user_id,client,created_at,last_seen_at,idle_expires_at,abs_expires_at,auth_at)
-        SELECT ?,?,u.id,'accounts',?,?,?,?,? FROM users u JOIN identities i ON i.user_id=u.id
+      this.statement(`INSERT INTO sessions(token_hash,id,user_id,client,created_at,last_seen_at,idle_expires_at,abs_expires_at,auth_at,sign_in_identity_id,ua_summary,country)
+        SELECT ?,?,u.id,'accounts',?,?,?,?,?,i.id,?,? FROM users u JOIN identities i ON i.user_id=u.id
         WHERE i.provider=? AND i.provider_subject=? AND u.status='active'
           AND NOT EXISTS(SELECT 1 FROM provider_revocations WHERE provider=? AND provider_subject=? AND revoked_at>=?)`,
-      tokenHash, session, now, now, now + ACCOUNT_IDLE, now + ACCOUNT_ABSOLUTE, now, provider, profile.subject, provider, profile.subject, startedAt),
+      tokenHash, session, now, now, now + ACCOUNT_IDLE, now + ACCOUNT_ABSOLUTE, now, metadata?.device ?? null, metadata?.country ?? null, provider, profile.subject, provider, profile.subject, startedAt),
       this.statement(`INSERT INTO security_audit(id,user_id,at,session_id,client,event)
         SELECT ?,user_id,?,id,'accounts','session.created' FROM sessions WHERE id=?`, `aud_${randomToken()}`, now, session),
     ]);
     check(results[3]?.meta.changes === 1, 403, 'sign_in_refused');
   }
   private readSession(tokenHash: string, now: number): Promise<AccountSession | null> {
-    return this.statement(`SELECT s.id,s.user_id,u.display_name,s.last_seen_at,s.abs_expires_at FROM sessions s
+    return this.statement(`SELECT s.id,s.user_id,u.display_name,s.last_seen_at,s.abs_expires_at,s.step_up_at FROM sessions s
       JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.client='accounts' AND s.revoked_at IS NULL
       AND s.idle_expires_at>? AND s.abs_expires_at>? AND u.status='active'`, tokenHash, now, now).first<AccountSession>();
   }

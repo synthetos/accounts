@@ -13,7 +13,7 @@ test('built Worker completes GitHub/OIDC login and enforces named RPC binding, s
   const { Miniflare, convertV4MiniflareOptions, Response: RuntimeResponse } = require('miniflare');
   const origin = 'https://accounts.example.test';
   const { unstable_splitSqlQuery } = require('wrangler');
-  let challenge; let calls = 0; const requests = [];
+  let challenge; let profileSubject = 23456; let calls = 0; const requests = [];
   const entry = resolve('dist/workers/accounts/src/index.js');
   const files = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? files(join(dir, e.name)) : [join(dir, e.name)]);
   const modules = [entry, ...files(resolve('dist')).filter((p) => p.endsWith('.js') && p !== entry)].map((path) => ({ type: 'ESModule', path }));
@@ -34,7 +34,7 @@ test('built Worker completes GitHub/OIDC login and enforces named RPC binding, s
       }
       assert.equal(request.url, 'https://api.github.com/user');
       assert.equal(request.headers.get('Authorization'), 'Bearer ghu_local_only');
-      return RuntimeResponse.json({ id: 23456, login: 'local-test', name: 'Local Test', avatar_url: null, email: 'discard@example.test' });
+      return RuntimeResponse.json({ id: profileSubject, login: 'local-test', name: 'Local Test', avatar_url: null, email: 'discard@example.test' });
     },
   }, { name: 'rp-test', compatibilityDate: '2026-10-01', modulesRoot: resolve('dist'),
     modules: [{ type: 'ESModule', path: resolve('dist/rpc-probe.js'), contents:
@@ -71,6 +71,27 @@ test('built Worker completes GitHub/OIDC login and enforces named RPC binding, s
     assert.equal(calls, 2);
     assert.equal((await db.prepare('SELECT email FROM identities').first()).email, null);
     assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM sessions').first()).n, 1);
+    const accountCookie=sid.split(';')[0];
+    async function managementStart() {
+      const page=await mf.dispatchFetch(`${origin}/account`,{headers:{Cookie:accountCookie},redirect:'manual'});
+      assert.equal(page.headers.get('Referrer-Policy'),'same-origin');
+      assert.match(page.headers.get('Content-Security-Policy'),/form-action 'self'$/);
+      const csrf=(await page.text()).match(/action="\/account\/step-up"><input type="hidden" name="csrf" value="([^"]+)"/)[1];
+      const body=new URLSearchParams({csrf}).toString();
+      const bad=await mf.dispatchFetch(`${origin}/account/step-up`,{method:'POST',redirect:'manual',headers:{Cookie:accountCookie,Origin:'https://sibling.example.test','Content-Type':'application/x-www-form-urlencoded'},body});
+      assert.equal(bad.status,403);
+      const started=await mf.dispatchFetch(`${origin}/account/step-up`,{method:'POST',redirect:'manual',headers:{Cookie:accountCookie,Origin:origin,'Content-Type':'application/x-www-form-urlencoded'},body});
+      assert.equal(started.status,200);assert.equal(started.headers.get('Referrer-Policy'),'no-referrer');
+      assert.match(started.headers.get('Content-Security-Policy'),/form-action 'self'$/);
+      const destination=new URL((await started.text()).match(/href="(https:\/\/github.com[^"]+)"/)[1].replaceAll('&amp;','&'));
+      assert.equal(destination.searchParams.get('prompt'),'select_account');challenge=destination.searchParams.get('code_challenge');
+      return {url:`${origin}/auth/github/callback?state=${destination.searchParams.get('state')}&code=local-management`,
+        headers:{Cookie:`${accountCookie}; ${started.headers.get('Set-Cookie').split(';')[0]}`}};
+    }
+    const verification=await managementStart();
+    assert.equal((await mf.dispatchFetch(verification.url,{headers:verification.headers,redirect:'manual'})).status,303);
+    assert.ok((await db.prepare("SELECT step_up_at FROM sessions WHERE client='accounts'").first()).step_up_at);
+    assert.equal((await mf.dispatchFetch(verification.url,{headers:verification.headers,redirect:'manual'})).status,403);
     await db.prepare("INSERT INTO oauth_clients(id,name,kind,redirect_uris_json) VALUES ('run','Run','binding','[\"https://run.example.test/auth/callback\"]')").run();
     const rp = await mf.getWorker('rp-test');
     const rpc = (method,args,defaultBinding=false) => rp.fetch('https://rp.invalid/', {method:'POST',body:JSON.stringify({method,args,default:defaultBinding})});
@@ -104,7 +125,13 @@ test('built Worker completes GitHub/OIDC login and enforces named RPC binding, s
     assert.equal((await rpc('revokeSession',[result.sessionToken])).status,200);
     assert.equal((await (await rpc('validateSession',[result.sessionToken])).json()).result,null);
     assert.equal((await db.prepare("SELECT count(*) n FROM sessions WHERE client='run'").first()).n,1);
-    assert.equal(calls,2,'OIDC/RPC do not fetch remote keys or providers');
+    assert.equal(calls,4,'OIDC/RPC do not fetch remote keys or providers beyond sign-in and step-up');
+    const wrong=await managementStart();profileSubject=99999;
+    const refused=await mf.dispatchFetch(wrong.url,{headers:wrong.headers,redirect:'manual'});assert.equal(refused.status,403);
+    assert.match(refused.headers.getSetCookie().find(v=>v.startsWith('__Host-acct_sid=')),/Max-Age=0/);
+    assert.equal((await db.prepare("SELECT revoke_reason FROM sessions WHERE client='accounts'").first()).revoke_reason,'step_up_subject_mismatch');
+    assert.equal((await db.prepare("SELECT count(*) n FROM security_audit WHERE event='step_up.subject_mismatch'").first()).n,1);
+    assert.equal((await db.prepare('SELECT count(*) n FROM users').first()).n,1);
 
   } finally { await mf.dispose(); }
 });

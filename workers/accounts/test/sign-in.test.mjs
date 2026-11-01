@@ -35,7 +35,7 @@ test('GitHub sign-in uses S256, persists only hashes and selected profile fields
     const account = await f.call('/', { headers: { Cookie: sid } }); assert.equal(account.status, 200);
     assert.match(await account.text(), /Fixture User/); assert.equal(account.headers.get('Access-Control-Allow-Origin'), null);
     assert.equal(account.headers.get('Cross-Origin-Opener-Policy'), 'same-origin');
-    assert.equal(account.headers.get('Referrer-Policy'), 'no-referrer'); assert.equal(account.headers.get('Cache-Control'), 'no-store');
+    assert.equal(account.headers.get('Referrer-Policy'), 'same-origin'); assert.equal(account.headers.get('Cache-Control'), 'no-store');
     f.profile = { id: 12345, login: 'renamed', name: '<script>alert(1)</script>', avatar_url: 'https://evil.test/tracking', email: 'still-discard@example.test' };
     f.now++;
     const second = await f.callback(await f.start()); assert.equal(second.status, 303);
@@ -116,7 +116,6 @@ test('only the login form permits GitHub form navigation and preserves the POST 
     const flow = await f.start(form);
     const callback = await f.callback(flow); assert.equal(callback.status, 303);
     for (const response of [flow.response, callback, await f.call('/missing'),
-      await f.call('/account', { headers: { Cookie: cookie(callback, '__Host-acct_sid') } }),
       await f.call('/login?return_to=//evil.test')]) {
       assert.match(response.headers.get('Content-Security-Policy'), /form-action 'self'$/);
       assert.equal(response.headers.get('Referrer-Policy'), 'no-referrer');

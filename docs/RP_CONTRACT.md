@@ -91,8 +91,8 @@ Every user-affecting RPC accepts a session token and derives the user from it:
   ten minutes and not in the future. Ordinary recent sign-in is insufficient.
   It atomically marks the user deleting, revokes all clients' sessions, queues all
   registered products and audits the request. A1-05 supplies the same-subject
-  step-up writer and management UI; until then real sessions lack that marker and
-  this method refuses. Product fan-out/retries/finalization are still future work.
+  step-up writer and management UI. An RP session gets this marker only from a
+  new code exchange after verification; ordinary sign-in does not set it. Product fan-out/retries/finalization are still future work.
 
 All methods enforce `client=run`; a forum or accounts token cannot be substituted.
 The RP must enforce its own CSRF, Origin and browser authorization checks before
@@ -143,7 +143,7 @@ unverified JWT URL is ever fetched. Responses use no-store and no CORS.
 
 Before A1-07: real Chromium form navigation in CI; mutation coverage expanded to
 idp and all accounts Worker source at the unchanged 90% floor; D37 numeric-ID
-admission allowlist; A1-05 step-up and account management; scheduled bounded
+admission allowlist; A1-05 independent review; scheduled bounded
 retention, product deletion delivery and confidential-RP revocation integration.
 A1-06 must keep identity outside machine/protocol/safety and never gate stop paths.
 Nothing here authorizes pushing, deploying, provisioning or editing the run repo.
