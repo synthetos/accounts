@@ -39,6 +39,16 @@ const SHARP_LIBVIPS_PLATFORMS = [
 ] as const;
 
 export const DEV_LICENCE_EXCEPTIONS: readonly LicenceException[] = [
+  {
+    name: 'tslib',
+    licence: '0BSD',
+    reason: 'Microsoft TypeScript helpers used by Stryker and rxjs in mutation tests only. Inspected package LICENSE.txt; never included in the TypeScript-only production build.',
+  },
+  {
+    name: 'caniuse-lite',
+    licence: 'CC-BY-4.0',
+    reason: 'Browser compatibility data used by Babel/browserslist inside Stryker instrumentation only. Package attribution/licence retained in the test install; no data is copied into the production artifact.',
+  },
   ...SHARP_LIBVIPS_PLATFORMS.map((platform) => ({
     name: `@img/sharp-libvips-${platform}`,
     licence: 'LGPL-3.0-or-later',

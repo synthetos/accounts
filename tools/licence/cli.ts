@@ -11,6 +11,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { checkReports, type PnpmLicenceReport } from './policy.ts';
+import { noRuntimeDependencies, parsePnpmReport } from './reports.ts';
 
 function pnpmJson(args: readonly string[]): PnpmLicenceReport {
   // Under `pnpm run`, npm_execpath is the pnpm entry script that is running
@@ -20,7 +21,7 @@ function pnpmJson(args: readonly string[]): PnpmLicenceReport {
     execPath !== undefined && /pnpm/i.test(execPath) && /\.(c|m)?js$/.test(execPath)
       ? execFileSync(process.execPath, [execPath, ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
       : execFileSync('pnpm', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  return JSON.parse(output) as PnpmLicenceReport;
+  return parsePnpmReport(output, args.includes('--prod') && noRuntimeDependencies(process.cwd()));
 }
 
 function readJson(path: string): PnpmLicenceReport {

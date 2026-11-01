@@ -5,12 +5,13 @@ The Worker is deliberately a 503 shell. No authentication endpoint is live.
 
 ## Current validation status
 
-A1-01 implementation is in progress. The local auth tests, typecheck, lint,
-dependency-cruiser and build pass with the cached tools used by the run repository.
-The root lockfile and Stryker 90% acceptance gate are pending: the current agent
-sandbox cannot reach the npm registry, and Stryker is not cached. Do not call
-A1-01 complete or enable deployments until a frozen clean install and mutation
-run have passed. CI intentionally requires those gates and cannot pass without them.
+A1-01 implementation is in progress. The auth/schema tests, typecheck, lint,
+dependency-cruiser and build pass with the installed accounts toolchain.
+The root lockfile is present and passes frozen/offline lockfile consistency
+validation. Stryker is installed, but its logging server cannot bind a local
+socket in this agent sandbox (`listen EPERM`). Do not call A1-01 complete or
+enable deployments until a frozen clean install and the 90% mutation gate pass.
+CI requires those gates; no hosted CI run has been performed.
 
 A1-02 schema and migration tests also pass with Node's SQLite runtime. The
 separate local D1 acceptance test is implemented but blocked in this session:
@@ -32,13 +33,12 @@ environment with local network permission before A1-02 is acceptance-complete.
 Use Node 22.22.0 and the pnpm version/hash in `packageManager`.
 
 ```sh
-corepack pnpm install --ignore-scripts
+corepack pnpm install --frozen-lockfile --ignore-scripts
 corepack pnpm check
 ```
 
-The first install must generate and review `pnpm-lock.yaml` before a frozen
-install can succeed. Never use an unfrozen install in CI. The auth tests can
-also run without installing anything:
+Never use an unfrozen install in CI. The auth tests can also run without
+installing anything:
 
 ```sh
 node --test packages/auth-core/test/*.test.mjs
