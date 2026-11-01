@@ -148,7 +148,7 @@ test('rate-limit cleanup is bounded and removes only expired windows, including 
     const insert = f.db.prepare('INSERT INTO login_rate_limits(bucket_hash,window_start,attempts) VALUES (?,?,1)');
     for (let i = 0; i < 101; i++) insert.run(`old-${i}`, f.now - 600);
     insert.run('active', f.now - 599);
-    const store = new Store(f.env.IDENTITY);
+    const store = new Store(f.env.IDENTITY, f.env.GITHUB_ALLOWED_IDS);
     await store.rateLimit('fresh', f.now);
     assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM login_rate_limits WHERE window_start<=?').get(f.now - 600).n, 1);
     assert.ok(f.db.prepare("SELECT bucket_hash FROM login_rate_limits WHERE bucket_hash='active'").get());
@@ -162,7 +162,7 @@ test('session idle/absolute expiry, revocation and account status take effect on
   const f = fixture();
   try {
     const done = await f.callback(await f.start()); const sid = cookie(done, '__Host-acct_sid'); const hash = sha(sid.split('=')[1]);
-    const store = new Store(f.env.IDENTITY); const before = f.db.prepare('SELECT * FROM sessions').get();
+    const store = new Store(f.env.IDENTITY, f.env.GITHUB_ALLOWED_IDS); const before = f.db.prepare('SELECT * FROM sessions').get();
     assert.ok(await store.validate(hash, f.now + 299)); assert.equal(f.db.prepare('SELECT last_seen_at FROM sessions').get().last_seen_at, f.now);
     assert.ok(await store.validate(hash, f.now + 300)); assert.equal(f.db.prepare('SELECT last_seen_at FROM sessions').get().last_seen_at, f.now + 300);
     assert.equal(await store.validate(hash, f.now + 300 + ACCOUNT_IDLE), null);
@@ -234,5 +234,11 @@ test('GitHub adapter refuses redirects, malformed profiles and upstream errors w
     { id: 123, login: 'bad<script>', name: null }, { id: 123, login: 'user', name: {} }]) {
     const provider = new GitHubProvider({ ...options, fetch: async () => Response.json(profile) });
     await assert.rejects(provider.profile(rawToken), { message: 'provider_unavailable' });
+  }
+});
+
+test('callback code boundaries are enforced before contacting the provider',async()=>{
+  for(const [code,status,calls] of [['x'.repeat(1024),502,1],['x'.repeat(1025),400,0],['a b',400,0],['a\u0000b',400,0]]){
+    const f=fixture();try{const response=await f.callback(await f.start(),{code});assert.equal(response.status,status);assert.equal(f.exchangeCalls,calls);}finally{f.close();}
   }
 });

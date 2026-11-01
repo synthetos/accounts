@@ -12,6 +12,7 @@ export interface Env {
   ID_TOKEN_PRIVATE_JWK?: string;
   ID_TOKEN_PREVIOUS_JWKS?: string;
   AUTH_ENABLED?: string;
+  GITHUB_ALLOWED_IDS?: string;
   ACCOUNT_ORIGIN?: string;
   GITHUB_APP_ID?: string;
   GITHUB_CLIENT_ID?: string;
@@ -66,7 +67,7 @@ export function createApp(deps: { provider?: IdentityProvider; now?: () => numbe
         const provider = deps.provider ?? new GitHubProvider({ clientId: env.GITHUB_CLIENT_ID,
           clientSecret: env.GITHUB_CLIENT_SECRET, redirectUri: callback });
         check(provider.name === 'github', 503, 'service_unavailable');
-        const store = new Store(env.IDENTITY);
+        const store = new Store(env.IDENTITY, env.GITHUB_ALLOWED_IDS);
         const formKey = await key(env.FORM_KEY, 'HMAC');
         const stateKey = await key(env.OAUTH_STATE_KEY, 'AES-GCM');
 
@@ -145,9 +146,9 @@ export function createApp(deps: { provider?: IdentityProvider; now?: () => numbe
         return response('Not found.', 404);
       } catch (error) {
         // Never log the request, URL, upstream error, token, code, state or cookie.
-        if (new URL(request.url).pathname === '/token') {
+        if (['/token','/introspect'].includes(new URL(request.url).pathname)) {
           const status = error instanceof HttpError ? error.status : error instanceof AuthError ? 400 : 503;
-          const code = status === 401 ? 'invalid_client' : status >= 500 ? 'server_error' : 'invalid_grant';
+          const code = status === 401 ? 'invalid_client' : status >= 500 ? 'server_error' : new URL(request.url).pathname === '/introspect' ? 'invalid_request' : 'invalid_grant';
           return response(JSON.stringify({ error: code }), status, { 'Content-Type': 'application/json', ...(status === 401 ? { 'WWW-Authenticate': 'Basic realm="accounts"' } : {}) });
         }
         if (error instanceof HttpError) return response(error.message, error.status);

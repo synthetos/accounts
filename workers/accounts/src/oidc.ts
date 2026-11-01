@@ -4,6 +4,7 @@ import type { Env } from './app.ts';
 import { OidcStore, type Authorization, type Client, type Identity, type Session } from './oidc-store.ts';
 import { check, key, keyedHash, readBody, seal, single, unseal } from './security.ts';
 import { Store } from './store.ts';
+import { confidentialClient } from './client-auth.ts';
 
 const CONTINUATION = '__Host-acct_authorize';
 export interface ExchangeContext { redirectUri: string; deviceRecordId: string; sharedComputer?: boolean }
@@ -115,31 +116,27 @@ export async function oidc(request: Request, env: Env, now: number): Promise<Res
     return Response.json({ issuer: origin, authorization_endpoint: `${origin}/authorize`, token_endpoint: `${origin}/token`, jwks_uri: `${origin}/jwks`,
       response_types_supported: ['code'], response_modes_supported: ['query'], grant_types_supported: ['authorization_code'],
       subject_types_supported: ['public'], id_token_signing_alg_values_supported: ['ES256'], token_endpoint_auth_methods_supported: ['client_secret_basic'],
+      introspection_endpoint: `${origin}/introspect`, introspection_endpoint_auth_methods_supported: ['client_secret_basic'],
       scopes_supported: ['openid'], code_challenge_methods_supported: ['S256'], claims_supported: ['iss','sub','aud','iat','exp','auth_time','nonce','identities'],
       request_parameter_supported: false, request_uri_parameter_supported: false });
   }
   if (request.method === 'GET' && url.pathname === '/jwks') return Response.json({ keys: (await signing(env)).keys });
+  if (request.method === 'POST' && url.pathname === '/introspect') {
+    const client = await confidentialClient(request, store);
+    const body = new URLSearchParams(await readBody(request, 8192));
+    for (const name of body.keys()) check(['token','token_type_hint'].includes(name) && body.getAll(name).length === 1);
+    const token = single(body, 'token');
+    // Unknown hints are ignored. Malformed/foreign/expired tokens all disclose only active:false.
+    let hash: string;
+    try { hash = await tokenHash(token); } catch { return Response.json({ active: false }); }
+    const row = await store.validate(hash, client.id, now);
+    if (row === null) return Response.json({ active: false });
+    return Response.json({ active: true, client_id: client.id, token_type: 'Bearer', scope: 'openid',
+      sub: row.sub, aud: client.id, iss: origin, iat: row.created_at, exp: Math.min(row.idle_expires_at, row.abs_expires_at),
+      auth_time: row.auth_at, sid: row.id });
+  }
   if (request.method === 'POST' && url.pathname === '/token') {
-    // Confidential server back-channel only. No cookie auth, browser Origin or CORS relaxation.
-    check(!request.headers.has('Origin') && request.headers.get('Content-Type')?.split(';')[0]?.trim() === 'application/x-www-form-urlencoded', 400);
-    const header = request.headers.get('Authorization') ?? ''; check(header.startsWith('Basic ') && header.length <= 4096, 401, 'invalid_client');
-    let decoded = ''; try { decoded = atob(header.slice(6)); } catch { check(false, 401, 'invalid_client'); }
-    const colon = decoded.indexOf(':'); check(colon > 0, 401, 'invalid_client');
-    // RFC 6749 2.3.1 encodes client id/secret as application/x-www-form-urlencoded before Basic.
-    const decode = (part: string) => {
-      try { return decodeURIComponent(part.replaceAll('+', ' ')); } catch { check(false, 401, 'invalid_client'); }
-    };
-    const id = decode(decoded.slice(0, colon)); const secret = decode(decoded.slice(colon + 1));
-    check(secret.length > 0 && secret.length <= 1024 && !/[\x00-\x20\x7f]/.test(secret), 401, 'invalid_client');
-    const client = await store.client(id);
-    // Client ids are public, but unknown/binding clients still run the same HMAC comparison.
-    const expectedHash = client?.kind === 'confidential' ? client.secret_hash : null;
-    const supplied = await hashToken(secret);
-    // Constant-time compare through WebCrypto, never a JS early-exit byte loop.
-    const comparisonKey = await crypto.subtle.importKey('raw', utf8(expectedHash ?? '0'.repeat(64)), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign','verify']);
-    const candidateKey = await crypto.subtle.importKey('raw', utf8(supplied), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    const matches = await crypto.subtle.verify('HMAC', comparisonKey, await crypto.subtle.sign('HMAC', candidateKey, utf8('client-secret')), utf8('client-secret'));
-    check(matches && client?.kind === 'confidential' && expectedHash, 401, 'invalid_client');
+    const client = await confidentialClient(request, store);
     const body = new URLSearchParams(await readBody(request, 8192));
     for (const name of body.keys()) check(['grant_type','code','code_verifier','redirect_uri'].includes(name) && body.getAll(name).length === 1);
     check(single(body, 'grant_type') === 'authorization_code');

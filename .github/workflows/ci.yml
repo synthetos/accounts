@@ -18,7 +18,7 @@
   "jobs": {
     "verify": {
       "runs-on": "ubuntu-24.04",
-      "timeout-minutes": 20,
+      "timeout-minutes": 60,
       "permissions": {
         "contents": "read"
       },
@@ -65,7 +65,7 @@
           "run": "pnpm test"
         },
         {
-          "name": "Auth-core mutation score >=90",
+          "name": "Auth, provider and Worker mutation score >=90",
           "run": "pnpm mutation"
         },
         {
@@ -199,7 +199,8 @@
       "needs": [
         "verify",
         "build",
-        "e2e"
+        "e2e",
+        "browser"
       ],
       "if": "github.event_name == 'push' && github.ref == 'refs/heads/main'"
     },
@@ -270,7 +271,8 @@
         "verify",
         "build",
         "e2e",
-        "attest"
+        "attest",
+        "browser"
       ],
       "environment": "staging",
       "if": "github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.ACCOUNTS_DEPLOY_ENABLED == 'true'",
@@ -347,7 +349,8 @@
         "build",
         "e2e",
         "attest",
-        "deploy-staging"
+        "deploy-staging",
+        "browser"
       ],
       "environment": "production",
       "if": "github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.ACCOUNTS_DEPLOY_ENABLED == 'true'",
@@ -355,6 +358,66 @@
         "group": "accounts-deploy-production",
         "cancel-in-progress": false
       }
+    },
+    "browser": {
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 20,
+      "permissions": {
+        "contents": "read"
+      },
+      "needs": [
+        "build"
+      ],
+      "steps": [
+        {
+          "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "uses": "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+          "with": {
+            "node-version": "22.22.0",
+            "package-manager-cache": false
+          }
+        },
+        {
+          "name": "Enable pinned pnpm",
+          "run": "corepack enable"
+        },
+        {
+          "name": "Install local Worker runtime",
+          "run": "pnpm --dir ci/deploy-toolchain install --frozen-lockfile --ignore-scripts"
+        },
+        {
+          "uses": "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
+          "with": {
+            "name": "accounts-worker",
+            "path": "artifact"
+          }
+        },
+        {
+          "name": "Extract exact build artifact",
+          "run": "mkdir payload\ntar -xf artifact/accounts-worker.tar -C payload"
+        },
+        {
+          "name": "Install pinned, hash-checked browser dependencies",
+          "run": "python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'\npython3 -m venv .browser-venv\n.browser-venv/bin/python -m pip install --require-hashes --only-binary=:all: -r test/browser/requirements.txt\n.browser-venv/bin/python -m playwright install --with-deps chromium"
+        },
+        {
+          "name": "Check browser tool licences",
+          "run": ".browser-venv/bin/python test/browser/licences.py | node test/browser/check-licences.mjs"
+        },
+        {
+          "name": "Real Chromium login and account form controls",
+          "run": ".browser-venv/bin/python test/browser/run.py",
+          "env": {
+            "BROWSER_ARTIFACT_DIR": "payload",
+            "WRANGLER_SEND_METRICS": "false"
+          }
+        }
+      ]
     }
   }
 }

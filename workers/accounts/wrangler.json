@@ -11,6 +11,9 @@
       "preview_urls": false,
       "observability": {
         "enabled": false
+      },
+      "vars": {
+        "GITHUB_ALLOWED_IDS": "[]"
       }
     }
   },
@@ -27,5 +30,8 @@
       ],
       "fallthrough": true
     }
-  ]
+  ],
+  "vars": {
+    "GITHUB_ALLOWED_IDS": "[]"
+  }
 }

@@ -77,7 +77,10 @@ GitHub posts remain on GitHub.
 ## Remaining release gates
 
 A1-06 still owns run's device-bind-before-cookie handoff and AuthGate integration.
-Before A1-07: browser regression in CI, idp/Worker mutation scope at the unchanged
-90% threshold, D37 allowlist, scheduled retention and required product revocation
-integration. No production resource, GitHub App, secret or deployment is created
+The accounts release work adds the browser CI gate, broader mutation scope at
+the unchanged 90% threshold, D37 allowlist and confidential-RP introspection.
+Scheduled retention and required product-side revocation integration remain.
+Once a transactional email sender is selected, add security notifications for
+new-device sign-in, identity linking/unlinking and sign-out everywhere. No sender
+is configured here; do not claim that these notifications are being sent. No production resource, GitHub App, secret or deployment is created
 by this implementation.

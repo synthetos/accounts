@@ -109,10 +109,30 @@ before joining with a colon. The body contains exactly `grant_type=authorization
 client authentication. The run binding client cannot use this public endpoint.
 The response contains `access_token` (opaque client session), `token_type=Bearer`,
 `expires_in`, `id_token` and `scope=openid`. Current confidential session defaults
-are 12-hour idle / 7-day absolute. There is no public session introspection or
-resource API yet; do not treat a locally verified ID token as a live revocation
-check or infer run privileges from it. Product session management and backchannel
-logout integration must be implemented before an HTTPS RP is released.
+are 12-hour idle / 7-day absolute.
+
+`POST /introspect` implements the restricted [RFC 7662](https://www.rfc-editor.org/rfc/rfc7662)
+backchannel with the same Basic authentication, form media type and no-Origin rule.
+Send `token=<opaque access_token>` and optionally `token_type_hint=access_token`;
+unknown hints are ignored. Unknown/duplicate parameters are refused. Authentication
+runs before token lookup; invalid client credentials return 401 `invalid_client`.
+Cookie-only and browser callers cannot use this endpoint, and it has no CORS.
+
+Every call validates the opaque session against primary D1, scoped to the authenticated
+client. Revoked, expired, malformed, foreign-client or locked/deleting-user sessions
+return exactly `{"active":false}`. Active responses contain `active`, `client_id`,
+`token_type`, `scope`, `sub`, `aud`, `iss`, `iat`, `exp`, `auth_time` and `sid` only;
+no provider profile, token hash or credential is disclosed. `exp` is the earlier
+idle/absolute expiry. Validation renews idle expiry at most every five minutes,
+without extending absolute expiry. All responses are no-store.
+
+Forumbot must introspect on every authenticated request, require `active === true`
+and its expected issuer/client/audience, and fail closed on errors or outages.
+Do not cache positive results across requests or treat an ID token as a live
+revocation check. This polling contract makes account revocation effective on the
+next request; it does not promise to cancel an already accepted request. It avoids
+a separate backchannel-logout delivery queue. Forumbot's call site and fail-closed
+integration tests still belong to that RP; they are not implemented in this repo.
 
 ## Identity and signing
 
@@ -141,9 +161,9 @@ unverified JWT URL is ever fetched. Responses use no-store and no CORS.
 
 ## Release gates still pending
 
-Before A1-07: real Chromium form navigation in CI; mutation coverage expanded to
-idp and all accounts Worker source at the unchanged 90% floor; D37 numeric-ID
-admission allowlist; A1-05 independent review; scheduled bounded
-retention, product deletion delivery and confidential-RP revocation integration.
+A1-05 is independently accepted. Accounts provides the Chromium CI gate, D37
+admission and confidential-RP introspection. Expanded mutation validation is tracked
+in the root README. Remaining integration includes scheduled bounded retention,
+product deletion delivery and forumbot request-by-request introspection tests.
 A1-06 must keep identity outside machine/protocol/safety and never gate stop paths.
 Nothing here authorizes pushing, deploying, provisioning or editing the run repo.

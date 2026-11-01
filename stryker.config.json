@@ -1,11 +1,33 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
-  "mutate": ["packages/auth-core/src/**/*.ts"],
+  "mutate": [
+    "packages/auth-core/src/**/*.ts",
+    "packages/idp/src/**/*.ts",
+    "workers/accounts/src/**/*.ts",
+    "!workers/accounts/src/**/*.d.ts"
+  ],
   "testRunner": "command",
-  "commandRunner": { "command": "node --test packages/auth-core/test/*.test.mjs" },
+  "commandRunner": {
+    "command": "node --test packages/auth-core/test/*.test.mjs workers/accounts/test/*.test.mjs"
+  },
   "coverageAnalysis": "off",
-  "thresholds": { "high": 95, "low": 90, "break": 90 },
-  "concurrency": 2,
-  "reporters": ["clear-text", "json", "html"],
-  "timeoutMS": 10000
+  "thresholds": {
+    "high": 95,
+    "low": 90,
+    "break": 90
+  },
+  "concurrency": 4,
+  "reporters": [
+    "progress-append-only",
+    "clear-text",
+    "json",
+    "html"
+  ],
+  "timeoutMS": 10000,
+  "jsonReporter": {
+    "fileName": "reports/release-mutation.json"
+  },
+  "htmlReporter": {
+    "fileName": "reports/release-mutation.html"
+  }
 }

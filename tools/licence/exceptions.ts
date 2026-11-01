@@ -40,6 +40,16 @@ const SHARP_LIBVIPS_PLATFORMS = [
 
 export const DEV_LICENCE_EXCEPTIONS: readonly LicenceException[] = [
   {
+    name: 'python:greenlet',
+    licence: 'MIT AND Python-2.0',
+    reason: 'Pinned Python Playwright test runtime only. Installed wheel metadata and bundled Python/MIT notices inspected; no Python file or binary enters the TypeScript-only Worker artifact.',
+  },
+  {
+    name: 'python:typing_extensions',
+    licence: 'PSF-2.0',
+    reason: 'Pinned Python Playwright typing support only. Installed wheel metadata and PSF notice inspected; permissive Python licence, never bundled or deployed.',
+  },
+  {
     name: 'tslib',
     licence: '0BSD',
     reason: 'Microsoft TypeScript helpers used by Stryker and rxjs in mutation tests only. Inspected package LICENSE.txt; never included in the TypeScript-only production build.',

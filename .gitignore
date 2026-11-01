@@ -7,3 +7,4 @@ reports/
 .dev.vars
 .env*
 !.env.example
+.browser-venv/

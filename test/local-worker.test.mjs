@@ -21,7 +21,7 @@ test('built Worker completes GitHub/OIDC login and enforces named RPC binding, s
   const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: 'accounts',
     modules, modulesRoot: resolve('dist'),
     compatibilityDate: '2026-10-01', d1Databases: ['IDENTITY'],
-    bindings: { ID_TOKEN_PRIVATE_JWK: JSON.stringify(await crypto.subtle.exportKey('jwk', signer.privateKey)), AUTH_ENABLED: 'true', ACCOUNT_ORIGIN: origin, GITHUB_APP_ID: '123456',
+    bindings: { ID_TOKEN_PRIVATE_JWK: JSON.stringify(await crypto.subtle.exportKey('jwk', signer.privateKey)), GITHUB_ALLOWED_IDS: JSON.stringify(['23456']), AUTH_ENABLED: 'true', ACCOUNT_ORIGIN: origin, GITHUB_APP_ID: '123456',
       GITHUB_CLIENT_ID: 'fixture-client', GITHUB_CLIENT_SECRET: 'fixture-secret',
       OAUTH_STATE_KEY: Buffer.alloc(32, 1).toString('base64url'), FORM_KEY: Buffer.alloc(32, 2).toString('base64url'),
       RATE_KEY: Buffer.alloc(32, 3).toString('base64url'), GITHUB_WEBHOOK_SECRET: 'fixture-webhook-secret-long-enough' },
@@ -126,12 +126,35 @@ test('built Worker completes GitHub/OIDC login and enforces named RPC binding, s
     assert.equal((await (await rpc('validateSession',[result.sessionToken])).json()).result,null);
     assert.equal((await db.prepare("SELECT count(*) n FROM sessions WHERE client='run'").first()).n,1);
     assert.equal(calls,4,'OIDC/RPC do not fetch remote keys or providers beyond sign-in and step-up');
+    const forumSecret='local-confidential-secret';
+    await db.prepare("UPDATE oauth_clients SET secret_hash=?,redirect_uris_json=? WHERE id='forum-synthetos'")
+      .bind(createHash('sha256').update(forumSecret).digest('hex'),JSON.stringify(['https://forum.example.test/callback'])).run();
+    params.set('client_id','forum-synthetos');params.set('redirect_uri','https://forum.example.test/callback');
+    const forumAuth=await mf.dispatchFetch(`${origin}/authorize?${params}`,{headers:{Cookie:accountCookie},redirect:'manual'});
+    assert.equal(forumAuth.status,303);
+    const basicHeaders={Authorization:`Basic ${btoa(`forum-synthetos:${forumSecret}`)}`,'Content-Type':'application/x-www-form-urlencoded'};
+    const exchanged=await mf.dispatchFetch(`${origin}/token`,{method:'POST',headers:basicHeaders,body:new URLSearchParams({grant_type:'authorization_code',code:new URL(forumAuth.headers.get('Location')).searchParams.get('code'),code_verifier:verifier,redirect_uri:'https://forum.example.test/callback'}).toString()});
+    assert.equal(exchanged.status,200);const forumToken=(await exchanged.json()).access_token;
+    const introspect=token=>mf.dispatchFetch(`${origin}/introspect`,{method:'POST',headers:basicHeaders,body:new URLSearchParams({token}).toString()});
+    assert.deepEqual(await(await introspect(result.sessionToken)).json(),{active:false});
+    const active=await(await introspect(forumToken)).json();assert.equal(active.active,true);assert.equal(active.client_id,'forum-synthetos');
+    await db.prepare("UPDATE sessions SET revoked_at=?,revoke_reason='test' WHERE id=?").bind(Math.floor(Date.now()/1000),active.sid).run();
+    assert.deepEqual(await(await introspect(forumToken)).json(),{active:false});
     const wrong=await managementStart();profileSubject=99999;
     const refused=await mf.dispatchFetch(wrong.url,{headers:wrong.headers,redirect:'manual'});assert.equal(refused.status,403);
     assert.match(refused.headers.getSetCookie().find(v=>v.startsWith('__Host-acct_sid=')),/Max-Age=0/);
     assert.equal((await db.prepare("SELECT revoke_reason FROM sessions WHERE client='accounts'").first()).revoke_reason,'step_up_subject_mismatch');
     assert.equal((await db.prepare("SELECT count(*) n FROM security_audit WHERE event='step_up.subject_mismatch'").first()).n,1);
     assert.equal((await db.prepare('SELECT count(*) n FROM users').first()).n,1);
+    const deniedPage=await mf.dispatchFetch(`${origin}/login`,{redirect:'manual'});
+    const deniedCsrf=(await deniedPage.text()).match(/name="csrf" value="([^"]+)"/)[1];
+    const deniedStart=await mf.dispatchFetch(`${origin}/login`,{method:'POST',redirect:'manual',headers:{Cookie:deniedPage.headers.get('Set-Cookie').split(';')[0],Origin:origin,'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({csrf:deniedCsrf,return_to:'/'}).toString()});
+    const deniedUrl=new URL(deniedStart.headers.get('Location'));challenge=deniedUrl.searchParams.get('code_challenge');
+    const denied=await mf.dispatchFetch(`${origin}/auth/github/callback?state=${deniedUrl.searchParams.get('state')}&code=denied`,{headers:{Cookie:deniedStart.headers.get('Set-Cookie').split(';')[0]},redirect:'manual'});
+    assert.equal(denied.status,403);assert.equal(await denied.text(),'Sign-in opens with the public beta');assert.equal(denied.headers.get('Set-Cookie'),null);
+    assert.equal((await db.prepare("SELECT count(*) n FROM security_audit WHERE event='sign_in.denied'").first()).n,1);
+    assert.equal((await db.prepare('SELECT count(*) n FROM users').first()).n,1);
+
 
   } finally { await mf.dispose(); }
 });

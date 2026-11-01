@@ -46,7 +46,7 @@ test('workflow keeps Cloudflare secrets in gated deploy jobs and pins every acti
       assert.equal(job.environment, undefined);
     } else {
       assert.equal(job.if, "github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.ACCOUNTS_DEPLOY_ENABLED == 'true'");
-      for (const gate of ['verify', 'build', 'e2e', 'attest']) assert.ok(job.needs.includes(gate));
+      for (const gate of ['verify', 'build', 'e2e', 'browser', 'attest']) assert.ok(job.needs.includes(gate));
       assert.equal(job.environment, name.slice('deploy-'.length));
       assert.ok(job.steps.some((s) => s.run?.includes('--source-digest "$GITHUB_SHA"')));
       assert.ok(job.steps.some((s) => s.run?.includes('--no-bundle --config payload/wrangler.json')));
@@ -65,4 +65,15 @@ test('workflow keeps Cloudflare secrets in gated deploy jobs and pins every acti
   assert.ok(workflow.jobs.verify.steps.some((s) => s.run === 'pnpm mutation'));
   const mutation = JSON.parse(readFileSync('stryker.config.json', 'utf8'));
   assert.equal(mutation.thresholds.break, 90);
+});
+
+test('browser gate exercises the built artifact without deployment credentials', () => {
+  const { jobs } = JSON.parse(readFileSync('.github/workflows/ci.yml', 'utf8'));
+  assert.deepEqual(jobs.browser.needs, ['build']);
+  assert.ok(jobs.attest.needs.includes('browser'));
+  assert.ok(jobs.browser.steps.some(s => s.uses?.startsWith('actions/download-artifact@') && s.with.name === 'accounts-worker'));
+  assert.ok(jobs.browser.steps.some(s => s.run?.includes('--require-hashes --only-binary=:all:')));
+  assert.ok(jobs.browser.steps.some(s => s.run === '.browser-venv/bin/python test/browser/run.py' && s.env.BROWSER_ARTIFACT_DIR === 'payload'));
+  const mutation = JSON.parse(readFileSync('stryker.config.json', 'utf8'));
+  assert.deepEqual(mutation.mutate, ['packages/auth-core/src/**/*.ts', 'packages/idp/src/**/*.ts', 'workers/accounts/src/**/*.ts', '!workers/accounts/src/**/*.d.ts']);
 });

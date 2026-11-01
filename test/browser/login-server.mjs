@@ -6,24 +6,25 @@ import { realpathSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-execFileSync(process.execPath, ['tools/build.mjs']);
+const artifactRoot = resolve(process.env.BROWSER_ARTIFACT_DIR ?? 'dist');
+if (!process.env.BROWSER_ARTIFACT_DIR) execFileSync(process.execPath, ['tools/build.mjs']);
 const require = createRequire(realpathSync('ci/deploy-toolchain/node_modules/wrangler/package.json'));
 const { Miniflare, convertV4MiniflareOptions } = require('miniflare');
 const { unstable_splitSqlQuery } = require('wrangler');
 const origin = 'https://accounts.example.test';
-const entry = resolve('dist/workers/accounts/src/index.js');
+const entry = join(artifactRoot, 'workers/accounts/src/index.js');
 const files = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? files(join(dir, e.name)) : [join(dir, e.name)]);
-const modules = [entry, ...files(resolve('dist')).filter((p) => p.endsWith('.js') && p !== entry)].map((path) => ({ type: 'ESModule', path }));
-const mf = new Miniflare(convertV4MiniflareOptions({ modules, modulesRoot: resolve('dist'), compatibilityDate: '2026-10-01',
-  d1Databases: ['IDENTITY'], bindings: { AUTH_ENABLED: 'true', ACCOUNT_ORIGIN: origin, GITHUB_APP_ID: '123456',
+const modules = [entry, ...files(artifactRoot).filter((p) => p.endsWith('.js') && p !== entry)].map((path) => ({ type: 'ESModule', path }));
+const mf = new Miniflare(convertV4MiniflareOptions({ modules, modulesRoot: artifactRoot, compatibilityDate: '2026-10-01',
+  d1Databases: ['IDENTITY'], bindings: { GITHUB_ALLOWED_IDS: JSON.stringify(['12345']), AUTH_ENABLED: 'true', ACCOUNT_ORIGIN: origin, GITHUB_APP_ID: '123456',
     GITHUB_CLIENT_ID: 'fixture-client', GITHUB_CLIENT_SECRET: 'fixture-secret',
     OAUTH_STATE_KEY: Buffer.alloc(32, 1).toString('base64url'), FORM_KEY: Buffer.alloc(32, 2).toString('base64url'),
     RATE_KEY: Buffer.alloc(32, 3).toString('base64url'), GITHUB_WEBHOOK_SECRET: 'fixture-webhook-secret-long-enough' },
   outboundService: () => { throw new Error('Browser fixture must not contact GitHub'); },
 }));
 const db = await mf.getD1Database('IDENTITY');
-for (const file of readdirSync('migrations').filter((f) => f.endsWith('.sql')).sort()) {
-  await db.batch(unstable_splitSqlQuery(readFileSync(`migrations/${file}`, 'utf8')).map((sql) => db.prepare(sql)));
+for (const file of readdirSync(join(artifactRoot, 'migrations')).filter((f) => f.endsWith('.sql')).sort()) {
+  await db.batch(unstable_splitSqlQuery(readFileSync(join(artifactRoot, 'migrations', file), 'utf8')).map((sql) => db.prepare(sql)));
 }
 // Synthetic signed-in browser fixture; never part of the Worker bundle.
 const now=Math.floor(Date.now()/1000); const user='usr_'+'0'.repeat(26);

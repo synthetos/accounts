@@ -6,11 +6,11 @@ to a 503 response until explicitly configured; no authentication endpoint is liv
 
 ## Current validation status
 
-A1-01 through A1-04 are independently accepted. A1-05 is implemented for review:
+A1-01 through A1-05 are independently accepted. Accounts release gates are being validated:
 
 - Frozen clean installation with lifecycle scripts disabled.
 - TypeScript, ESLint, dependency-cruiser and dependency licences.
-- 91 unit/schema/policy/type-contract tests, including independent crypto vectors, audit retention
+- 125 unit/schema/policy/type-contract tests, including independent crypto vectors, audit retention
   boundaries and GitHub sign-in failure cases.
 - Auth-core Stryker: **94.54%**, 519 killed / 549 total, 30 survivors, no timeouts or errors;
   threshold remains 90%. Every mutated source file scores above 90%.
@@ -26,8 +26,8 @@ A1-01 through A1-04 are independently accepted. A1-05 is implemented for review:
   toolchain installs only TypeScript, and the built Worker passes its smoke check.
 
 The initial sandbox restrictions were removed before the mutation and D1 runs.
-The independent collaborator accepted A1-03 at `6b240ff`. A1-04 was accepted at `7c29b4e`; the `7e7db46` follow-up and A1-05 await
-independent review.
+Independent review accepted A1-03 at `6b240ff`, A1-04 at `7c29b4e`/`7e7db46`,
+and A1-05 at `831350f` (with regression follow-up `8349842`).
 No hosted CI run, push, resource provisioning
 or deployment has been performed. These are foundations, not a
 production-ready identity service.
@@ -128,14 +128,25 @@ is delivery-ID replay protection, not an independent signed freshness guarantee.
 
 Required bindings/configuration: `AUTH_ENABLED=true`, exact HTTPS `ACCOUNT_ORIGIN`,
 `IDENTITY` D1, and the new zero-permission app's `GITHUB_APP_ID`, `GITHUB_CLIENT_ID`
-and `GITHUB_CLIENT_SECRET`. The forum app ID is explicitly refused. Secrets
+and `GITHUB_CLIENT_SECRET`, plus `GITHUB_ALLOWED_IDS`. The forum app ID is explicitly refused. Secrets
 `OAUTH_STATE_KEY`, `FORM_KEY` and `RATE_KEY` are independent canonical base64url
 32-byte keys; `GITHUB_WEBHOOK_SECRET` must contain at least 32 UTF-8 bytes. Never
 reuse production secrets in fixtures. Invocation observability is explicitly
 disabled, and application code does not log requests, credentials or upstream errors.
 No real app registration, secrets or database bindings are included in this repo.
 
-Before release, A1-07 must provide those resources, the production tester allowlist
+D37 admission is enforced at `Store.signIn` before any user, identity or session is
+created. `GITHUB_ALLOWED_IDS` is a JSON array of canonical positive numeric GitHub
+ID strings (for example `["12345"]`), not logins. It permits at most 1,000 unique
+safe-integer IDs and 100,000 configuration characters. Missing/malformed config
+fails closed with 503; a non-listed identity receives 403 and a `sign_in.denied`
+audit row with no raw provider data. Request parameters cannot alter admission.
+Both checked-in environment defaults are `[]`; nobody can sign in until trusted
+configuration supplies IDs. There is no bypass switch. Removing an ID blocks
+new sign-ins; use explicit session revocation to invalidate an existing session.
+Step-up/link remain bound to an already admitted account and cannot create users.
+
+Before release, A1-07 must provide those resources, owner-approved tester IDs
 and staging Access protection. Scheduled retention for old login requests, rate
 buckets when there is no login traffic, revocation metadata and audit/session rows still needs implementation;
 webhook delivery cleanup occurs on webhook processing. Account management and
@@ -144,13 +155,14 @@ See [account management](docs/ACCOUNT_MANAGEMENT.md). A1-04 persists and echoes 
 See [the RP contract](docs/RP_CONTRACT.md) for supported endpoints, RPC methods,
 client registration, device binding and remaining integration requirements.
 
-The real Chromium browser check must become a CI job before A1-07.
-A1-07 release gates also include enforcing D37's GitHub numeric-ID allowlist
-at the `Store.signIn(provider, profile, ...)` admission boundary, before identity
-or session creation, with an audited refusal. The allowlist must come from trusted
-configuration/storage, not a request parameter. Extend Stryker's mutation targets
-and test command to `packages/idp` and `workers/accounts/src`, and meet the same
-90% threshold before release. The current 94.54% result covers auth-core only.
+The real Chromium browser check is a required secret-free CI job against the build
+artifact. Stryker now mutates auth-core, idp and all accounts Worker executable
+source at the unchanged 90% threshold; declaration files alone are excluded.
+The first expanded baseline scored 75.31% (1,971 killed, 3 timed out, 647 survived
+of 2,621), correctly failing the 90% gate. The stronger suite is being rerun; no
+expanded passing score is claimed yet. The earlier 94.54% result above covers
+auth-core only. Confidential HTTPS RPs have authenticated RFC 7662 `/introspect`;
+forumbot still needs its request-by-request integration and fail-closed tests.
 A1-05's script-free form documents preserve the exact POST Origin with
 `Referrer-Policy: same-origin`; only the login form gets the GitHub CSP allowance.
 
@@ -162,7 +174,8 @@ algorithm and claim checks described in [RFC 8725](https://www.rfc-editor.org/rf
 
 The workflow is JSON (a YAML subset) so policy tests parse it without a custom
 YAML parser. Verify has no secrets. Build installs only TypeScript and compares
-two clean builds byte for byte. The attestation job has no repository checkout
+two clean builds byte for byte. Browser runs real Chromium controls on the downloaded artifact before attestation.
+The attestation job has no repository checkout
 or script execution. Deploy jobs alone receive the Cloudflare token, verify the
 artifact provenance against the exact commit/workflow, and use `--no-bundle`.
 
@@ -170,7 +183,7 @@ Before enabling `ACCOUNTS_DEPLOY_ENABLED`, the owner must create the repository,
 review A1-07 configuration, set the dedicated account bindings and routes, and
 configure protected staging/production environments. Production requires owner
 approval. Configure native branch protection with two trusted approving reviews,
-Code Owner review, stale-review dismissal and required verify/build/e2e checks.
+Code Owner review, stale-review dismissal and required verify/build/e2e/browser checks.
 These server settings cannot be enforced by PR-editable CI alone.
 
 Nothing has been pushed, deployed, or provisioned. The build/deploy lockfiles

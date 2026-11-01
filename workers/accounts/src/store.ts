@@ -24,7 +24,10 @@ export const ACCOUNT_ABSOLUTE = 30 * 86400;
 
 export class Store {
   private readonly db: DatabaseSession;
-  constructor(database: IdentityDatabase) { this.db = database.withSession('first-primary'); }
+  private readonly allowedIds: string | undefined;
+  constructor(database: IdentityDatabase, allowedIds?: string) {
+    this.db = database.withSession('first-primary'); this.allowedIds = allowedIds;
+  }
   private statement(sql: string, ...values: Binding[]): Statement { return this.db.prepare(sql).bind(...values); }
   async rateLimit(bucket: string, now: number): Promise<void> {
     // Bound maintenance work per attempt; the time index makes this independent of active rows.
@@ -51,6 +54,19 @@ export class Store {
     return row;
   }
   async signIn(provider: string, profile: ProviderProfile, tokenHash: string, now: number, startedAt: number, metadata?: { device: string; country: string | null }): Promise<void> {
+    // D37 is fail-closed in every environment. There is no request-controlled or missing-config bypass.
+    check(this.allowedIds !== undefined && this.allowedIds.length <= 100_000, 503, 'service_unavailable');
+    let allowed: unknown;
+    try { allowed = JSON.parse(this.allowedIds); } catch { check(false, 503, 'service_unavailable'); }
+    check(Array.isArray(allowed) && allowed.length <= 1000 && allowed.every((id: unknown) =>
+      typeof id === 'string' && Number.isSafeInteger(Number(id)) && Number(id) > 0 && String(Number(id)) === id)
+      && new Set(allowed).size === allowed.length, 503, 'service_unavailable');
+    if (provider !== 'github' || !allowed.includes(profile.subject)) {
+      await this.statement(`INSERT INTO security_audit(id,user_id,at,client,event,detail_json)
+        VALUES (?,(SELECT user_id FROM identities WHERE provider=? AND provider_subject=?),?,'accounts','sign_in.denied',
+        '{"reason":"allowlist"}')`, `aud_${randomToken()}`, provider, profile.subject, now).run();
+      check(false, 403, 'Sign-in opens with the public beta');
+    }
     const candidate = userId(now); const identity = `idn_${randomToken()}`; const session = `ses_${randomToken()}`;
     const results = await this.db.batch([
       this.statement(`INSERT INTO users(id,display_name,avatar_url,created_at)

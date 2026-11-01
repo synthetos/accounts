@@ -31,7 +31,7 @@ function fixture() {
     },
   };
   const identity = { withSession(mode) { assert.equal(mode, 'first-primary'); primaryReads++; return adapter; } };
-  const env = { AUTH_ENABLED: 'true', ACCOUNT_ORIGIN: origin, GITHUB_APP_ID: '123456',
+  const env = { GITHUB_ALLOWED_IDS: JSON.stringify(['12345','67890','99999']), AUTH_ENABLED: 'true', ACCOUNT_ORIGIN: origin, GITHUB_APP_ID: '123456',
     GITHUB_CLIENT_ID: 'fixture-client', GITHUB_CLIENT_SECRET: 'fixture-client-secret',
     OAUTH_STATE_KEY: Buffer.alloc(32, 1).toString('base64url'), FORM_KEY: Buffer.alloc(32, 2).toString('base64url'),
     RATE_KEY: Buffer.alloc(32, 3).toString('base64url'), GITHUB_WEBHOOK_SECRET: 'fixture-webhook-secret-long-enough', IDENTITY: identity };
