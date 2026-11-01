@@ -5,18 +5,22 @@ The Worker is deliberately a 503 shell. No authentication endpoint is live.
 
 ## Current validation status
 
-A1-01 implementation is in progress. The auth/schema tests, typecheck, lint,
-dependency-cruiser and build pass with the installed accounts toolchain.
-The root lockfile is present and passes frozen/offline lockfile consistency
-validation. Stryker is installed, but its logging server cannot bind a local
-socket in this agent sandbox (`listen EPERM`). Do not call A1-01 complete or
-enable deployments until a frozen clean install and the 90% mutation gate pass.
-CI requires those gates; no hosted CI run has been performed.
+A1-01 and A1-02 implementation and local acceptance checks pass:
 
-A1-02 schema and migration tests also pass with Node's SQLite runtime. The
-separate local D1 acceptance test is implemented but blocked in this session:
-Wrangler/workerd cannot bind localhost (`listen EPERM`). It must pass in an
-environment with local network permission before A1-02 is acceptance-complete.
+- Frozen clean installation with lifecycle scripts disabled.
+- TypeScript, ESLint, dependency-cruiser and dependency licences.
+- 43 unit/schema/policy tests, including independent crypto vectors.
+- Stryker: **94.21%**, 504 killed / 535 total, 31 survivors, no timeouts or errors;
+  threshold remains 90%. Every mutated source file scores above 90%.
+- Local Wrangler D1: migration application, repeated application, fixture seed
+  and provider/subject uniqueness rejection.
+- Two clean source-copy builds produce identical bytes; the separate build
+  toolchain installs only TypeScript, and the built Worker passes its smoke check.
+
+The initial sandbox restrictions were removed before the mutation and D1 runs.
+Independent collaborator review is pending. No hosted CI run, push, resource
+provisioning or deployment has been performed. These are foundations, not a
+production-ready identity service.
 
 ## Layout
 

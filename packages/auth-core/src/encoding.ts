@@ -8,7 +8,8 @@ export function base64url(bytes: Uint8Array): string {
 
 /** Reject padding, noncanonical trailing bits and oversized inputs. */
 export function decodeBase64url(value: string): Uint8Array<ArrayBuffer> {
-  requireAuth(value.length > 0 && value.length <= 65_536 && /^[A-Za-z0-9_-]+$/.test(value), 'invalid_input');
+  // Decoding plus exact re-encoding below enforces the alphabet and padding rules.
+  requireAuth(value.length > 0 && value.length <= 65_536, 'invalid_input');
   try {
     const binary = atob(value.replaceAll('-', '+').replaceAll('_', '/'));
     const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));

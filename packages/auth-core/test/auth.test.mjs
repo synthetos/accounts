@@ -6,7 +6,7 @@ import {
   hostCookie, clearHostCookie, readHostCookie,
   assertApiMutation, assertFormMutation, createFormToken, signIdToken, verifyIdToken,
 } from '../src/index.ts';
-import { base64url, decodeBase64url } from '../src/encoding.ts';
+import { base64url, decodeBase64url, decodeUtf8 } from '../src/encoding.ts';
 
 const authError = (code) => (error) => error instanceof AuthError && error.code === code && error.message === code;
 const origin = 'https://run.synthetos.com';
@@ -52,6 +52,14 @@ test('canonical base64url round trips arbitrary bytes and rejects ambiguous enco
   }
 });
 
+test('base64url enforces its size cap even on valid input, and UTF-8 decoding is strict', () => {
+  assert.equal(decodeBase64url('AAAA'.repeat(16384)).length, 49152);
+  assert.throws(() => decodeBase64url('AAAA'.repeat(16385)), authError('invalid_input'));
+  assert.equal(decodeUtf8(new Uint8Array([0x68, 0xc3, 0xa9])), 'hé');
+  assert.throws(() => decodeUtf8(new Uint8Array([0xc3, 0x28])), TypeError);
+  assert.equal(new AuthError('invalid_input').name, 'AuthError');
+});
+
 test('host cookies have fixed attributes and browser-session cookies omit Max-Age', () => {
   assert.equal(hostCookie('__Host-run_sid', token, { sameSite: 'Strict', maxAge: 604800 }),
     `__Host-run_sid=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=604800`);
@@ -85,9 +93,11 @@ test('cookie helpers reject injection, weak tokens, invalid names and duplicate 
 test('API mutation guards allow only exact origin, method, header and requested media type', () => {
   for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) assertApiMutation(request({}, method), origin);
   assertApiMutation(request({ 'Content-Type': 'APPLICATION/JSON; charset=utf-8' }), origin);
+  assertApiMutation(request({ 'Content-Type': 'application/json ; charset=utf-8' }), origin);
   const noFetchMetadata = request(); noFetchMetadata.headers.delete('Sec-Fetch-Site');
   assertApiMutation(noFetchMetadata, origin);
   assertApiMutation(request({ 'Content-Type': 'application/octet-stream' }), origin, true);
+  assert.throws(() => assertApiMutation(request({ 'Content-Type': 'text/plain' }), origin, true), authError('csrf_denied'));
   for (const method of ['GET', 'HEAD', 'OPTIONS']) {
     assert.throws(() => assertApiMutation(request({}, method), origin), authError('csrf_denied'));
   }
@@ -134,6 +144,24 @@ test('form token matches independent HMAC and binds session, action and expiry',
   await assert.rejects(createFormToken(weakKey, 's', 'a', 1000), authError('invalid_input'));
 });
 
+test('form tokens reject wrong algorithms and invalid caller clocks, including at validation', async () => {
+  const r = formRequest();
+  const issued = await createFormToken(hmacKey, 's', 'a', 0);
+  await assertFormMutation(r, origin, hmacKey, 's', 'a', issued, 0);
+  const maxNow = Number.MAX_SAFE_INTEGER - 600;
+  const farFuture = await createFormToken(hmacKey, 's', 'a', maxNow);
+  await assertFormMutation(r, origin, hmacKey, 's', 'a', farFuture, maxNow);
+  for (const now of [-1, 1.5, NaN, Infinity]) {
+    await assert.rejects(assertFormMutation(r, origin, hmacKey, 's', 'a', issued, now), authError('invalid_input'));
+  }
+  const wrongHash = await crypto.subtle.importKey('raw', hmacBytes, { name: 'HMAC', hash: 'SHA-512' }, false, ['sign', 'verify']);
+  const wrongAlgorithm = await crypto.subtle.importKey('raw', hmacBytes, { name: 'AES-GCM' }, false, ['encrypt']);
+  for (const key of [wrongHash, wrongAlgorithm]) {
+    await assert.rejects(createFormToken(key, 's', 'a', 0), authError('invalid_input'));
+    await assert.rejects(assertFormMutation(r, origin, key, 's', 'a', issued, 0), authError('invalid_input'));
+  }
+});
+
 const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
 const privateKey = createPrivateKey({ key: await crypto.subtle.exportKey('jwk', keys.privateKey), format: 'jwk' });
 const publicKey = createPublicKey(privateKey);
@@ -155,6 +183,45 @@ test('ES256 works against independent node:crypto signing and verification', asy
   await verifyIdToken(externallySigned({ ...claims, nbf: 1000 }), keys.publicKey, options);
   await verifyIdToken(signed, keys.publicKey, { ...options, now: 1059 });
   await verifyIdToken(externallySigned({ ...claims, nonce: undefined }), keys.publicKey, { ...options, nonce: undefined });
+});
+
+test('signing refuses invalid claims before minting any token', async () => {
+  for (const invalid of [null, [], true, 'claims', 12, Object.assign([], claims),
+    { ...claims, iss: '' }, { ...claims, aud: '' }, { ...claims, sub: 12 },
+    { ...claims, iat: -1 }, { ...claims, exp: 999 }, { ...claims, exp: claims.iat },
+    { ...claims, exp: '1060' }, { ...claims, iat: 1.5 },
+    { ...claims, nbf: -1 }, { ...claims, nbf: '1000' },
+    { ...claims, nonce: '' }, { ...claims, nonce: 1 }, { ...claims, nonce: ['x'] }]) {
+    await assert.rejects(signIdToken(invalid, keys.privateKey, 'key-1'), authError('invalid_token'));
+  }
+  const zero = { ...claims, iat: 0, exp: 60, nbf: 0 };
+  const signed = await signIdToken(zero, keys.privateKey, 'key-1');
+  assert.deepEqual(await verifyIdToken(signed, keys.publicKey, { ...options, now: 0 }), zero);
+  const p384 = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-384' }, false, ['sign', 'verify']);
+  const ecdh = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
+  for (const key of [p384.privateKey, ecdh.privateKey]) {
+    await assert.rejects(signIdToken(claims, key, 'key-1'), authError('invalid_token'));
+  }
+});
+
+test('verification validates nonce shape even when nonce matching was not requested', async () => {
+  for (const nonce of ['', 12, ['x']]) {
+    await assert.rejects(verifyIdToken(externallySigned({ ...claims, nonce }), keys.publicKey,
+      { ...options, nonce: undefined }), authError('invalid_token'));
+  }
+});
+
+test('JWT size limit rejects authentic oversized tokens, not only malformed input', async () => {
+  const header = { alg: 'ES256', typ: 'JWT', kid: 'key-12' };
+  let boundary;
+  for (let n = 12000; n < 12300; n++) {
+    const candidate = externallySigned({ ...claims, padding: 'x'.repeat(n) }, header);
+    if (candidate.length === 16384) { boundary = candidate; break; }
+  }
+  assert.ok(boundary, 'fixture must exercise the exact allowed boundary');
+  await verifyIdToken(boundary, keys.publicKey, { ...options, kid: 'key-12' });
+  const oversized = externallySigned({ ...claims, padding: 'x'.repeat(13000) });
+  await assert.rejects(verifyIdToken(oversized, keys.publicKey, options), authError('invalid_token'));
 });
 
 for (const [label, patch] of Object.entries({
