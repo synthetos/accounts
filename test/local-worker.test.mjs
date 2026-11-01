@@ -138,6 +138,12 @@ test('built Worker completes GitHub/OIDC login and enforces named RPC binding, s
     const introspect=token=>mf.dispatchFetch(`${origin}/introspect`,{method:'POST',headers:basicHeaders,body:new URLSearchParams({token}).toString()});
     assert.deepEqual(await(await introspect(result.sessionToken)).json(),{active:false});
     const active=await(await introspect(forumToken)).json();assert.equal(active.active,true);assert.equal(active.client_id,'forum-synthetos');
+    assert.deepEqual(Object.keys(active).sort(),['active','auth_time','client_id','exp','iat','identities','sid','sub']);
+    for(const identity of active.identities)assert.deepEqual(Object.keys(identity).sort(),['id','login','provider']);
+    await db.prepare("UPDATE introspection_rate_limits SET attempts=599 WHERE client='forum-synthetos'").run();
+    assert.equal((await introspect(forumToken)).status,200);
+    const throttled=await introspect(forumToken);assert.equal(throttled.status,429);assert.equal(throttled.headers.get('Retry-After'),'60');
+    await db.prepare("UPDATE introspection_rate_limits SET window_start=0 WHERE client='forum-synthetos'").run();
     await db.prepare("UPDATE sessions SET revoked_at=?,revoke_reason='test' WHERE id=?").bind(Math.floor(Date.now()/1000),active.sid).run();
     assert.deepEqual(await(await introspect(forumToken)).json(),{active:false});
     const wrong=await managementStart();profileSubject=99999;

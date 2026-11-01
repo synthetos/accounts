@@ -123,17 +123,18 @@ export async function oidc(request: Request, env: Env, now: number): Promise<Res
   if (request.method === 'GET' && url.pathname === '/jwks') return Response.json({ keys: (await signing(env)).keys });
   if (request.method === 'POST' && url.pathname === '/introspect') {
     const client = await confidentialClient(request, store);
+    await store.limitIntrospection(client.id, now);
     const body = new URLSearchParams(await readBody(request, 8192));
     for (const name of body.keys()) check(['token','token_type_hint'].includes(name) && body.getAll(name).length === 1);
     const token = single(body, 'token');
     // Unknown hints are ignored. Malformed/foreign/expired tokens all disclose only active:false.
-    let hash: string;
-    try { hash = await tokenHash(token); } catch { return Response.json({ active: false }); }
-    const row = await store.validate(hash, client.id, now);
-    if (row === null) return Response.json({ active: false });
-    return Response.json({ active: true, client_id: client.id, token_type: 'Bearer', scope: 'openid',
-      sub: row.sub, aud: client.id, iss: origin, iat: row.created_at, exp: Math.min(row.idle_expires_at, row.abs_expires_at),
-      auth_time: row.auth_at, sid: row.id });
+    let hash: string; let canonical = true;
+    try { hash = await tokenHash(token); } catch { canonical = false; hash = await hashToken(`invalid-introspection:${token}`); }
+    const row = await store.introspect(hash, client.id, now);
+    if (!canonical || row === null) return Response.json({ active: false });
+    return Response.json({ active: true, client_id: client.id, sub: row.sub,
+      iat: row.created_at, exp: Math.min(row.idle_expires_at, row.abs_expires_at),
+      auth_time: row.auth_at, sid: row.id, identities: view(row).identities });
   }
   if (request.method === 'POST' && url.pathname === '/token') {
     const client = await confidentialClient(request, store);

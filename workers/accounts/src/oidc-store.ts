@@ -16,6 +16,8 @@ const SESSION_FIELDS = `s.id,u.id AS sub,u.display_name AS name,s.client,s.auth_
   (SELECT json_group_array(json_object('provider',provider,'id',provider_subject,'login',login)) FROM identities WHERE user_id=u.id) AS identities_json`;
 export const RP_IDLE = 12 * 3600;
 export const RP_ABSOLUTE = 7 * 86400;
+export const INTROSPECTION_LIMIT = 600;
+export const INTROSPECTION_WINDOW = 60;
 
 /** Each instance starts with a primary read; no identity or session cache survives requests. */
 export class OidcStore {
@@ -24,6 +26,24 @@ export class OidcStore {
   private q(sql: string, ...args: (string | number | null)[]): Statement { return this.db.prepare(sql).bind(...args); }
   client(id: string): Promise<Client | null> {
     return this.q('SELECT id,kind,redirect_uris_json,secret_hash FROM oauth_clients WHERE id=?', id).first<Client>();
+  }
+  async limitIntrospection(client: string, now: number): Promise<void> {
+    const row = await this.q(`INSERT INTO introspection_rate_limits(client,window_start,attempts) VALUES (?,?,1)
+      ON CONFLICT(client) DO UPDATE SET
+      attempts=CASE WHEN window_start<=? THEN 1 ELSE MIN(attempts+1,?) END,
+      window_start=CASE WHEN window_start<=? THEN excluded.window_start ELSE window_start END
+      RETURNING attempts`, client, now, now - INTROSPECTION_WINDOW, INTROSPECTION_LIMIT + 1, now - INTROSPECTION_WINDOW).first<{ attempts: number }>();
+    check(row !== null && row.attempts <= INTROSPECTION_LIMIT, 429, 'try_again_later');
+  }
+  async introspect(hash: string, client: string, now: number): Promise<Session | null> {
+    // Always take the same primary UPDATE + SELECT path, including unknown tokens.
+    // The guarded UPDATE writes at most once per five minutes and cannot revive a session.
+    await this.q(`UPDATE sessions SET last_seen_at=?,idle_expires_at=MIN(?+CASE WHEN shared_computer=1 THEN 3600 ELSE ? END,abs_expires_at)
+      WHERE token_hash=? AND client=? AND revoked_at IS NULL AND idle_expires_at>? AND abs_expires_at>?
+      AND created_at<=? AND last_seen_at<=?
+      AND EXISTS(SELECT 1 FROM users WHERE id=sessions.user_id AND status='active')`,
+    now, now, RP_IDLE, hash, client, now, now, now, now - 300).run();
+    return this.read(hash, client, now);
   }
   async startResume(hash: string, nonce: string, encrypted: string, now: number): Promise<void> {
     await this.db.batch([

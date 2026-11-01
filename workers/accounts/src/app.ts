@@ -148,8 +148,8 @@ export function createApp(deps: { provider?: IdentityProvider; now?: () => numbe
         // Never log the request, URL, upstream error, token, code, state or cookie.
         if (['/token','/introspect'].includes(new URL(request.url).pathname)) {
           const status = error instanceof HttpError ? error.status : error instanceof AuthError ? 400 : 503;
-          const code = status === 401 ? 'invalid_client' : status >= 500 ? 'server_error' : new URL(request.url).pathname === '/introspect' ? 'invalid_request' : 'invalid_grant';
-          return response(JSON.stringify({ error: code }), status, { 'Content-Type': 'application/json', ...(status === 401 ? { 'WWW-Authenticate': 'Basic realm="accounts"' } : {}) });
+          const code = status === 401 ? 'invalid_client' : status === 429 ? 'rate_limited' : status >= 500 ? 'server_error' : new URL(request.url).pathname === '/introspect' ? 'invalid_request' : 'invalid_grant';
+          return response(JSON.stringify({ error: code }), status, { 'Content-Type': 'application/json', ...(status === 401 ? { 'WWW-Authenticate': 'Basic realm="accounts"' } : {}), ...(status === 429 ? { 'Retry-After': '60' } : {}) });
         }
         if (error instanceof HttpError) return response(error.message, error.status);
         if (error instanceof AuthError) return response('request_refused', 403);

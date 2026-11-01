@@ -10,11 +10,12 @@ A1-01 through A1-05 are independently accepted. Accounts release gates are being
 
 - Frozen clean installation with lifecycle scripts disabled.
 - TypeScript, ESLint, dependency-cruiser and dependency licences.
-- 134 unit/schema/policy/type-contract tests, including independent crypto vectors, audit retention
+- 138 unit/schema/policy/type-contract tests, including independent crypto vectors, audit retention
   boundaries and GitHub sign-in failure cases.
-- Full-scope Stryker: **91.53%**, 2,396 killed, 3 timed out and 222 survivors
+- Previous full-scope Stryker at `1ef8d25`: **91.53%**, 2,396 killed, 3 timed out and 222 survivors
   across 2,621 mutants; no runtime or compilation error statuses. Each identity package
   independently passes the unchanged 90% threshold (details below).
+
 - Local Wrangler D1: migration application, repeated application, fixture seed,
   provider/subject uniqueness rejection and audit retention guards.
 - Built Worker on local workerd/D1: complete sign-in with intercepted GitHub requests,
@@ -25,6 +26,9 @@ A1-01 through A1-05 are independently accepted. Accounts release gates are being
   and blocked network fallback. See [browser test instructions](test/browser/README.md).
 - Two clean source-copy builds produce identical bytes; the separate build
   toolchain installs only TypeScript, and the built Worker passes its smoke check.
+
+The subsequent introspection rate-limit/response-contract revision is being
+validated; the previous mutation result is not a score for that revision.
 
 The initial sandbox restrictions were removed before the mutation and D1 runs.
 Independent review accepted A1-03 at `6b240ff`, A1-04 at `7c29b4e`/`7e7db46`,
@@ -183,7 +187,7 @@ one at a time inside each of four mutation runners, with a 30-second timeout,
 to bound nested test-process fan-out.
 
 Confidential HTTPS RPs have authenticated RFC 7662 `/introspect`;
-forumbot still needs its request-by-request integration and fail-closed tests.
+forumbot still needs its bounded positive-cache/write-path integration and fail-closed tests.
 A1-05's script-free form documents preserve the exact POST Origin with
 `Referrer-Policy: same-origin`; only the login form gets the GitHub CSP allowance.
 

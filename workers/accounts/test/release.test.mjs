@@ -26,11 +26,11 @@ test('D37 admission is config-only, numeric, fail-closed and audited before any 
 });
 
 async function introspectionFixture(){
-  const f=fixture();await new Store(f.env.IDENTITY,f.env.GITHUB_ALLOWED_IDS).signIn('github',profile,sha(randomToken()),f.now,f.now);
+  const f=fixture();f.accountToken=randomToken();await new Store(f.env.IDENTITY,f.env.GITHUB_ALLOWED_IDS).signIn('github',profile,sha(f.accountToken),f.now,f.now);
   const user=f.db.prepare('SELECT id FROM users').get().id;
   for(const id of ['forum','other'])f.db.prepare("INSERT INTO oauth_clients(id,name,kind,redirect_uris_json,secret_hash) VALUES (?,?,'confidential','[]',?)").run(id,id,sha(`${id}-secret`));
   f.token=randomToken();f.db.prepare("INSERT INTO sessions(token_hash,id,user_id,client,created_at,last_seen_at,idle_expires_at,abs_expires_at,auth_at) VALUES (?,'ses_forum',?,'forum',?,?,?,?,?)")
-    .run(sha(f.token),user,f.now,f.now,f.now+43200,f.now+604800,f.now);
+    .run(sha(f.token),user,f.now,f.now,f.now+43200,f.now+604800,f.now-40);
   f.introspect=(token=f.token,client='forum',fields={},headers={})=>f.call('/introspect',{method:'POST',headers:{Authorization:`Basic ${btoa(`${client}:${client}-secret`)}`,'Content-Type':'application/x-www-form-urlencoded',...headers},body:new URLSearchParams({token,...fields})});
   return f;
 }
@@ -38,9 +38,10 @@ test('RFC7662 introspection reads primary on each call and observes revoke, user
   for(const change of ['revoke','lock','idle','absolute']){
     const f=await introspectionFixture();try{
       const before=f.primaryReads;const response=await f.introspect();assert.equal(response.status,200);assert.ok(f.primaryReads>before);
-      const result=await response.json();assert.equal(result.active,true);assert.equal(result.client_id,'forum');assert.equal(result.aud,'forum');assert.equal(result.iss,origin);
-      assert.equal(result.sub,f.db.prepare('SELECT id FROM users').get().id);assert.equal(result.iat,f.now);assert.equal(result.auth_time,f.now);assert.equal(result.exp,f.now+43200);assert.equal(result.sid,'ses_forum');assert.equal(result.scope,'openid');assert.equal(result.token_type,'Bearer');
-      assert.deepEqual(Object.keys(result).sort(),['active','aud','auth_time','client_id','exp','iat','iss','scope','sid','sub','token_type']);
+      const result=await response.json();assert.equal(result.active,true);assert.equal(result.client_id,'forum');
+      assert.equal(result.sub,f.db.prepare('SELECT id FROM users').get().id);assert.equal(result.iat,f.now);assert.equal(result.auth_time,f.now-40);assert.equal(result.exp,f.now+43200);assert.equal(result.sid,'ses_forum');
+      assert.deepEqual(Object.keys(result).sort(),['active','auth_time','client_id','exp','iat','identities','sid','sub']);
+      assert.deepEqual(result.identities,[{provider:'github',id:'12345',login:'fixture'}]);
       assert.equal(response.headers.get('Cache-Control'),'no-store');assert.equal(response.headers.get('Referrer-Policy'),'no-referrer');assert.equal(response.headers.has('Access-Control-Allow-Origin'),false);
       if(change==='revoke')f.db.prepare("UPDATE sessions SET revoked_at=?,revoke_reason='test' WHERE id='ses_forum'").run(f.now);
       if(change==='lock')f.db.exec("UPDATE users SET status='locked'");
@@ -101,6 +102,77 @@ test('admission accepts exact configuration bounds and refuses oversized valid J
     const f=fixture();try{
       const call=new Store(f.env.IDENTITY,configuration).signIn('github',profile,sha(randomToken()),f.now,f.now);
       if(accepted){await call;assert.equal(f.db.prepare('SELECT count(*) n FROM users').get().n,1);}else await assert.rejects(call,{message:'service_unavailable'});
+    }finally{f.close();}
+  }
+});
+
+test('introspection limits are per authenticated client across requests, bounded and reset at sixty seconds',async()=>{
+  const f=await introspectionFixture();try{
+    assert.equal((await f.introspect()).status,200);
+    f.db.exec("UPDATE introspection_rate_limits SET attempts=599 WHERE client='forum'");
+    f.now+=59;
+    assert.equal((await f.introspect(randomToken())).status,200);
+    const limited=await f.introspect();assert.equal(limited.status,429);
+    assert.deepEqual(await limited.json(),{error:'rate_limited'});assert.equal(limited.headers.get('Retry-After'),'60');
+    assert.equal(limited.headers.get('Cache-Control'),'no-store');
+    assert.equal((await f.introspect(f.token,'other')).status,200);
+    for(let i=0;i<3;i++)assert.equal((await f.introspect()).status,429);
+    assert.equal(f.db.prepare("SELECT attempts FROM introspection_rate_limits WHERE client='forum'").get().attempts,601);
+    f.now++;assert.equal((await f.introspect()).status,200);
+    assert.deepEqual({...f.db.prepare("SELECT attempts,window_start FROM introspection_rate_limits WHERE client='forum'").get()},{attempts:1,window_start:f.now});
+    assert.equal((await f.introspect(f.token,'forum',{}, {Authorization:'Basic '+btoa('forum:wrong')})).status,401);
+    assert.equal(f.db.prepare("SELECT attempts FROM introspection_rate_limits WHERE client='forum'").get().attempts,1);
+    f.db.exec("DELETE FROM oauth_clients WHERE id='other'");
+    assert.equal(f.db.prepare("SELECT count(*) n FROM introspection_rate_limits WHERE client='other'").get().n,0);
+  }finally{f.close();}
+});
+
+test('known, foreign, unknown and malformed introspection tokens take identical parameterized database operations',async()=>{
+  const f=await introspectionFixture();try{
+    const underlying=f.env.IDENTITY;let queries=[];
+    f.env.IDENTITY={withSession(mode){const db=underlying.withSession(mode);return {...db,prepare(sql){queries.push(sql);return db.prepare(sql);}};}};
+    const paths=[];
+    for(const [token,client] of [[f.token,'forum'],[randomToken(),'forum'],['malformed','forum'],[f.token,'other']]){
+      queries=[];const response=await f.introspect(token,client);
+      assert.equal(response.status,200);assert.equal((await response.json()).active,token===f.token&&client==='forum');
+      paths.push(queries.slice());
+    }
+    for(const path of paths.slice(1))assert.deepEqual(path,paths[0]);
+    assert.ok(paths[0].some(sql=>sql.startsWith('UPDATE sessions SET last_seen_at=')));
+    const cookieOnly=await f.introspect(f.token,'forum',{}, {Authorization:'',Cookie:'__Host-acct_sid='+f.accountToken});
+    assert.equal(cookieOnly.status,401);
+    const withCookie=await f.introspect(f.token,'forum',{}, {Cookie:'__Host-acct_sid=irrelevant'});
+    assert.equal((await withCookie.json()).active,true);
+  }finally{f.close();}
+});
+
+test('introspection refreshes only active owned sessions, preserves absolute expiry and uses shared-computer idle limits',async()=>{
+  for(const shared of [0,1]){
+    const f=await introspectionFixture();try{
+      f.db.prepare("UPDATE sessions SET shared_computer=? WHERE id='ses_forum'").run(shared);
+      const initial=f.now;f.now+=299;await f.introspect();
+      assert.equal(f.db.prepare("SELECT last_seen_at FROM sessions WHERE id='ses_forum'").get().last_seen_at,initial);
+      f.now++;const value=await(await f.introspect()).json();
+      assert.equal(value.exp,f.now+(shared?3600:43200));
+      f.db.prepare("UPDATE sessions SET abs_expires_at=?,idle_expires_at=? WHERE id='ses_forum'").run(f.now+301,f.now+301);
+      f.now+=300;assert.equal((await(await f.introspect()).json()).exp,f.now+1);
+      f.now++;assert.deepEqual(await(await f.introspect()).json(),{active:false});
+    }finally{f.close();}
+  }
+});
+
+test('introspection cannot refresh foreign, revoked, expired, future or disabled-account sessions',async()=>{
+  for(const state of ['foreign','revoked','idle','absolute','future','locked','deleting']){
+    const f=await introspectionFixture();try{
+      f.now+=300;
+      if(state==='revoked')f.db.prepare("UPDATE sessions SET revoked_at=?,revoke_reason='test' WHERE id='ses_forum'").run(f.now);
+      if(state==='idle')f.db.prepare("UPDATE sessions SET idle_expires_at=? WHERE id='ses_forum'").run(f.now);
+      if(state==='absolute')f.db.prepare("UPDATE sessions SET idle_expires_at=?,abs_expires_at=? WHERE id='ses_forum'").run(f.now,f.now);
+      if(state==='future')f.db.prepare("UPDATE sessions SET created_at=?,last_seen_at=? WHERE id='ses_forum'").run(f.now+1,f.now+1);
+      if(state==='locked'||state==='deleting')f.db.prepare('UPDATE users SET status=?,deletion_requested_at=?').run(state,state==='deleting'?f.now:null);
+      const before=f.db.prepare("SELECT * FROM sessions WHERE id='ses_forum'").get();
+      assert.deepEqual(await(await f.introspect(f.token,state==='foreign'?'other':'forum')).json(),{active:false},state);
+      assert.deepEqual(f.db.prepare("SELECT * FROM sessions WHERE id='ses_forum'").get(),before,state);
     }finally{f.close();}
   }
 });

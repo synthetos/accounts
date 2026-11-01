@@ -117,22 +117,45 @@ Send `token=<opaque access_token>` and optionally `token_type_hint=access_token`
 unknown hints are ignored. Unknown/duplicate parameters are refused. Authentication
 runs before token lookup; invalid client credentials return 401 `invalid_client`.
 Cookie-only and browser callers cannot use this endpoint, and it has no CORS.
+Cookies never authenticate a call; a cookie accompanying valid Basic credentials
+is ignored. Each authenticated client gets 600 attempts per fixed 60-second window,
+shared in primary D1 across isolates. Invalid credentials do not consume another
+client's quota. Excess calls return 429 `rate_limited`, `Retry-After: 60`, and no-store.
+The counter saturates at 601 and one row per registered client bounds storage;
+removing the client cascades its counter. Size/parameter failures also consume quota.
 
 Every call validates the opaque session against primary D1, scoped to the authenticated
 client. Revoked, expired, malformed, foreign-client or locked/deleting-user sessions
-return exactly `{"active":false}`. Active responses contain `active`, `client_id`,
-`token_type`, `scope`, `sub`, `aud`, `iss`, `iat`, `exp`, `auth_time` and `sid` only;
-no provider profile, token hash or credential is disclosed. `exp` is the earlier
+return exactly `{"active":false}`. Canonical, unknown, foreign and malformed tokens
+take the same parameterized primary UPDATE + SELECT path; malformed tokens use a
+domain-separated dummy hash and can never return active:true. This avoids an
+early-return token lookup shortcut; it does not promise constant database/network latency.
+Active responses contain only `active`, `client_id`, `sub`, `iat`, `exp`, `auth_time`,
+`sid` and `identities`. Each identity contains only `provider`, provider subject `id`
+and display-only `login`, matching the ID token. No identity row id, IP hash, country,
+other session or credential is disclosed. `iat` is session issuance time;
+`auth_time` is the original authentication time, as in the ID token. `exp` is the earlier
 idle/absolute expiry. Validation renews idle expiry at most every five minutes,
 without extending absolute expiry. All responses are no-store.
 
-Forumbot must introspect on every authenticated request, require `active === true`
-and its expected issuer/client/audience, and fail closed on errors or outages.
-Do not cache positive results across requests or treat an ID token as a live
-revocation check. This polling contract makes account revocation effective on the
-next request; it does not promise to cancel an already accepted request. It avoids
-a separate backchannel-logout delivery queue. Forumbot's call site and fail-closed
-integration tests still belong to that RP; they are not implemented in this repo.
+Forumbot must use its configured trusted HTTPS accounts endpoint with redirects refused, require
+`active === true` and its expected `client_id`, and fail closed when a fresh check
+fails. It may cache only active:true results in its own application state, keyed
+by both client and token hash, for at most 60 seconds from the introspection
+request's start and never past `exp`. No negative or error result may be cached.
+The HTTP response remains no-store; this narrowly scoped application cache is
+explicitly authorized by the RP contract, not by intermediary caching headers.
+Every request must re-introspect once that cache expires; in particular a post or
+edit must not proceed using an expired entry. Timeouts, outages and 429 responses
+never extend a cache deadline or permit stale-while-revalidate. An ID token alone
+is not a live revocation check. Revocation can therefore remain cached for up to
+one minute; an already accepted operation is not cancelled retroactively.
+
+Follow-up under RUN_PLAN §3.6: signed HTTPS logout and deletion notices to RPs
+will invalidate their application caches immediately. Notices need signature,
+replay, retry and delivery-failure tests; they are not implemented here.
+Introspection remains the reliable fallback when a notice is lost. Forumbot's
+cache and write-path integration tests belong to that RP and remain outstanding.
 
 ## Identity and signing
 
@@ -164,6 +187,6 @@ unverified JWT URL is ever fetched. Responses use no-store and no CORS.
 A1-05 is independently accepted. Accounts provides the Chromium CI gate, D37
 admission and confidential-RP introspection. Expanded mutation validation is tracked
 in the root README. Remaining integration includes scheduled bounded retention,
-product deletion delivery and forumbot request-by-request introspection tests.
+product deletion delivery, signed RP notices and forumbot cache/write-path introspection tests.
 A1-06 must keep identity outside machine/protocol/safety and never gate stop paths.
 Nothing here authorizes pushing, deploying, provisioning or editing the run repo.

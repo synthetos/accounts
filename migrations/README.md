@@ -86,3 +86,8 @@ Identity unlink revokes matching sessions before deleting the identity; legacy
 sessions with null provenance are revoked conservatively. The FK uses SET NULL
 so revoked session records survive unlink for their retention period. Management
 requests expire after ten minutes and are pruned in bounded batches on creation.
+
+`0007` adds the introspection counter: one row per registered confidential client,
+shared across Worker isolates. Requests beyond 600 per fixed 60-second window are
+refused. Counters saturate at 601, reset on the next request after the window, and
+cascade when a client is removed. No bearer tokens are persisted in this table.
