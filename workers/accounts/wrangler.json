@@ -1,0 +1,8 @@
+{
+  "name": "accounts",
+  "main": "workers/accounts/src/index.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "env": { "staging": { "name": "accounts-staging", "workers_dev": false, "preview_urls": false } }
+}

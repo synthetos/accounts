@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+reports/
+.stryker-tmp/
+.wrangler/
+.dev.vars
+.env*
+!.env.example

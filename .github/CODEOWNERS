@@ -1,0 +1,13 @@
+# Authentication and identity schema require independent review.
+* @ril3y
+/packages/auth-core/ @ril3y
+/workers/accounts/ @ril3y
+/migrations/ @ril3y
+/.github/ @ril3y
+/ci/ @ril3y
+/tools/ @ril3y
+/pnpm-lock.yaml @ril3y
+/package.json @ril3y
+/.dependency-cruiser.cjs @ril3y
+/eslint.config.js @ril3y
+/stryker.config.json @ril3y

@@ -1,0 +1,11 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "mutate": ["packages/auth-core/src/**/*.ts"],
+  "testRunner": "command",
+  "commandRunner": { "command": "node --test packages/auth-core/test/*.test.mjs" },
+  "coverageAnalysis": "off",
+  "thresholds": { "high": 95, "low": 90, "break": 90 },
+  "concurrency": 2,
+  "reporters": ["clear-text", "json", "html"],
+  "timeoutMS": 10000
+}
