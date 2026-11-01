@@ -23,7 +23,7 @@ async function setup() {
     const html=await response.text();const authorization=new URL(unescape(html.match(/href="(https:\/\/github.com[^\"]+)"/)[1]));
     assert.equal(authorization.searchParams.get('prompt'),'select_account');
     f.expectedChallenge=authorization.searchParams.get('code_challenge');
-    return {response,authorization,state:authorization.searchParams.get('state'),cookie:`${f.sid}; ${cookie(response,'__Host-acct_manage')}`};
+    return {response,html,authorization,state:authorization.searchParams.get('state'),cookie:`${f.sid}; ${cookie(response,'__Host-acct_manage')}`};
   };
   f.verify=async()=>{const flow=await f.manage();const r=await f.callback(flow);assert.equal(r.status,303,await r.clone().text());return {flow,response:r};};
   return f;
@@ -185,4 +185,61 @@ test('sign-in stores only coarse browser/OS and country metadata, never the raw 
     assert.equal(row.sign_in_identity_id,f.db.prepare('SELECT id FROM identities').get().id);
     assert.equal(JSON.stringify(row).includes(ua),false);assert.equal(JSON.stringify(row).includes('192.0.2.99'),false);
   } finally {f.close();}
+});
+
+test('login and step-up callback contexts cannot exchange states or relabel each other’s nonce cookies',async()=>{
+  const f=await setup();
+  try {
+    const login=await f.start();const step=await f.manage();
+    const loginNonce=login.cookie.split('=')[1];
+    const managementNonce=step.cookie.split('; ').find(c=>c.startsWith('__Host-acct_manage=')).split('=')[1];
+    const calls=f.exchangeCalls;
+    for(const swapped of [
+      {...step,cookie:`${f.sid}; ${login.cookie}`},
+      {...step,cookie:`${f.sid}; __Host-acct_manage=${loginNonce}`},
+      {...login,cookie:step.cookie},
+      {...login,cookie:`${f.sid}; __Host-acct_oauth=${managementNonce}`},
+    ]) assert.ok((await f.callback(swapped)).status>=400);
+    assert.equal(f.exchangeCalls,calls,'cross-flow requests must fail before provider exchange');
+    assert.equal(f.db.prepare('SELECT used_at FROM auth_requests WHERE state_hash=?').get(sha(login.state)).used_at,null);
+    assert.equal(f.db.prepare('SELECT used_at FROM management_requests WHERE state_hash=?').get(sha(step.state)).used_at,null);
+    assert.equal(f.db.prepare('SELECT step_up_at FROM sessions').get().step_up_at,null);
+    assert.equal(f.db.prepare('SELECT count(*) n FROM sessions').get().n,1);
+    // The single callback endpoint follows stored purpose, so valid contexts still work as intended.
+    f.expectedChallenge=step.authorization.searchParams.get('code_challenge');
+    assert.equal((await f.callback(step)).status,303);
+    assert.equal(f.db.prepare('SELECT count(*) n FROM sessions').get().n,1,'step-up must never mint a login session');
+    f.expectedChallenge=login.authorization.searchParams.get('code_challenge');
+    assert.equal((await f.callback(login)).status,303);
+    const count=f.db.prepare('SELECT count(*) n FROM sessions').get().n;
+    const both=`${f.sid}; ${login.cookie}; __Host-acct_manage=${managementNonce}`;
+    for(const flow of [login,step]) assert.ok((await f.callback({...flow,cookie:both})).status>=400);
+    assert.equal(f.db.prepare('SELECT count(*) n FROM sessions').get().n,count);
+  } finally {f.close();}
+});
+
+test('step-up and link POSTs set their own bound nonce and expose raw state only in the script-free interstitial link',async()=>{
+  for(const purpose of ['step-up','link']) {
+    const f=await setup();
+    try {
+      if(purpose==='link')await f.verify();
+      const flow=await f.manage(purpose);assert.equal(flow.response.status,200);
+      assert.equal(flow.response.headers.get('Cache-Control'),'no-store');
+      assert.equal(flow.response.headers.get('Referrer-Policy'),'no-referrer');
+      assert.match(flow.response.headers.get('Content-Security-Policy'),/script-src 'none'/);
+      assert.match(flow.response.headers.get('Content-Security-Policy'),/form-action 'self'$/);
+      assert.equal(flow.response.headers.has('Location'),false);
+      assert.match(flow.response.headers.get('Set-Cookie'),/^__Host-acct_manage=.*Secure; HttpOnly; SameSite=Lax; Max-Age=600/);
+      assert.equal(flow.html.split(flow.state).length-1,1);
+      assert.ok(flow.html.match(/href="https:\/\/github.com[^\"]+"/)[0].includes(flow.state));
+      assert.equal(/<(script|form)\b/i.test(flow.html),false);
+      assert.equal(JSON.stringify([...flow.response.headers]).includes(flow.state),false);
+      const row=f.db.prepare('SELECT * FROM management_requests WHERE state_hash=?').get(sha(flow.state));
+      assert.equal(row.purpose,purpose==='step-up'?'step_up':'link');assert.equal(row.used_at,null);
+      assert.equal(row.expires_at-row.created_at,600);assert.equal(row.session_id,f.session.id);
+      const nonce=cookie(flow.response,'__Host-acct_manage').split('=')[1];
+      assert.equal(row.browser_nonce_hash,sha(nonce));assert.notEqual(nonce,flow.state);
+      assert.equal(JSON.stringify(row).includes(flow.state),false);
+    } finally {f.close();}
+  }
 });
