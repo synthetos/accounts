@@ -2,7 +2,8 @@
 
 Apply the numbered SQL files through Wrangler's migration ledger, in order.
 `0001` creates the eight RUN_PLAN §4.1 tables; `0002` adds indexes without
-changing existing data or application queries. Both are expand-only.
+changing existing data or application queries. `0003` replaces only the audit
+delete guard and adds retention indexes; existing records are preserved.
 
 Local D1 validation (no Cloudflare credentials or deployed database needed):
 
@@ -26,12 +27,33 @@ that checks unused state and expiry atomically; the tests demonstrate the shape,
 including browser nonce binding. Do not use a read-then-write sequence.
 
 Audit rows deliberately have no cascading user/session foreign keys. They
-remain after account deletion. UPDATE and DELETE are blocked by triggers;
-there is no application mutation or pruning path. The required one-year
-retention job is future work and needs a separately reviewed, bounded
-maintenance migration that manages those triggers. Do not disable them in
-request handlers. Account finalization must remove completed deletion-job
-rows before removing the user; outstanding jobs prevent premature deletion.
+remain after account deletion with a pseudonymous `usr_<ULID>` reference.
+The launch privacy text must disclose that security audit records survive account
+deletion until their retention period expires; this is not anonymous data.
+UPDATE is always blocked. DELETE is allowed only for rows older than 365 days,
+using the database clock; the exact 365-day boundary remains protected.
+The required bounded retention job is future work: prune with `at < now - 31536000`
+using `security_audit_by_time`. No request handler may disable the guards.
+There is currently no application mutation or pruning path, so this migration
+enables the policy but does not schedule automatic deletion.
+
+Account finalization must confirm every product deletion, remove completed
+deletion-job rows, then remove the user. The restrictive FK intentionally prevents
+deletion while any job remains, including completed jobs awaiting cleanup.
+The finalizer must enforce completion; the FK alone does not check job status.
+
+Session retention is 30 days after effective expiry. Since idle expiry is always
+at or before absolute expiry, the pruning query can use `idle_expires_at < cutoff`
+with `sessions_by_idle_expiry`; `sessions_by_expiry` remains for absolute expiry.
+Retention jobs and their scheduling are not implemented by A1-02.
+
+A1-04 must add a nullable RP OIDC `nonce` column in a forward migration before
+issuing ID tokens from authorization-code exchange. Preserve and echo the RP's
+nonce exactly; a stored hash alone cannot supply that claim. This is distinct
+from the pre-auth browser cookie binding in `auth_requests.browser_nonce_hash`.
+A1-03 must request no email scope, discard any email returned in GitHub's profile,
+and test that sign-in leaves `identities.email IS NULL` and `email_verified = 0`.
+Those endpoint tests require the future sign-in implementation.
 
 Future schema changes use expand/contract: add nullable columns or compatible
 tables first; deploy readers/writers; backfill with a reviewed job; remove old

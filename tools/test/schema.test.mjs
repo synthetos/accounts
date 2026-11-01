@@ -21,9 +21,12 @@ test('expand migrations preserve existing records and all eight design tables ex
     db.exec('PRAGMA foreign_keys=ON');
     db.exec(sql(migrations[0]));
     db.exec(readFileSync('test/fixtures/identity.sql', 'utf8'));
+    db.prepare("INSERT INTO security_audit(id,at,event) VALUES ('pre_migration',1000,'test')").run();
     const before = db.prepare('SELECT * FROM identities').all();
+    const auditBefore = db.prepare('SELECT * FROM security_audit').all();
     for (const name of migrations.slice(1)) db.exec(sql(name));
     assert.deepEqual(db.prepare('SELECT * FROM identities').all(), before);
+    assert.deepEqual(db.prepare('SELECT * FROM security_audit').all(), auditBefore);
     assert.deepEqual(db.prepare("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name").all().map((r) => r.name),
       ['auth_codes', 'auth_requests', 'deletion_jobs', 'identities', 'oauth_clients', 'security_audit', 'sessions', 'users']);
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
@@ -83,7 +86,7 @@ test('one-time codes and requests support atomic conditional consumption', () =>
 test('audit is append-only and survives account deletion without cascading changes', () => {
   const db = database();
   try {
-    db.prepare("INSERT INTO security_audit(id,user_id,at,event) VALUES ('audit_1',?,1000,'session.created')").run(user);
+    db.prepare("INSERT INTO security_audit(id,user_id,at,event) VALUES ('audit_1',?,CAST(strftime('%s','now') AS INTEGER),'session.created')").run(user);
     assert.throws(() => db.exec("UPDATE security_audit SET event='changed'"), /append-only/);
     assert.throws(() => db.exec('DELETE FROM security_audit'), /append-only/);
     db.prepare('DELETE FROM users WHERE id=?').run(user);
@@ -98,6 +101,33 @@ test('deletion cannot finish while product fan-out jobs still reference the user
     db.prepare("INSERT INTO deletion_jobs(user_id,product,next_at) VALUES (?,'run',1000)").run(user);
     assert.throws(() => db.prepare('DELETE FROM users WHERE id=?').run(user), /FOREIGN KEY/);
     assert.throws(() => db.prepare("INSERT INTO deletion_jobs(user_id,product,next_at) VALUES (?,'run',1000)").run(user), /UNIQUE/);
+    // Finalizer must first confirm all products, then purge jobs before deleting the user.
+    db.prepare("UPDATE deletion_jobs SET status='completed' WHERE user_id=?").run(user);
+    db.prepare("DELETE FROM deletion_jobs WHERE user_id=? AND status='completed'").run(user);
+    db.prepare('DELETE FROM users WHERE id=?').run(user);
+    assert.equal(db.prepare('SELECT id FROM users WHERE id=?').get(user), undefined);
+  } finally { db.close(); }
+});
+
+test('audit pruning allows only rows older than 365 days and never allows updates', () => {
+  const db = database();
+  try {
+    const now = 2_000_000_000;
+    db.function('strftime', (format, value) => {
+      assert.equal(format, '%s'); assert.equal(value, 'now');
+      return String(now);
+    });
+    const cutoff = now - 31_536_000;
+    const insert = db.prepare("INSERT INTO security_audit(id,at,event) VALUES (?,?,'session.created')");
+    for (const [id, at] of [['old', cutoff - 1], ['boundary', cutoff], ['recent', cutoff + 1], ['future', now + 1]]) {
+      insert.run(id, at);
+      assert.throws(() => db.prepare("UPDATE security_audit SET at=0 WHERE id=?").run(id), /append-only/);
+    }
+    for (const id of ['boundary', 'recent', 'future']) {
+      assert.throws(() => db.prepare('DELETE FROM security_audit WHERE id=?').run(id), /append-only/);
+    }
+    assert.equal(db.prepare('DELETE FROM security_audit WHERE at < ?').run(cutoff).changes, 1);
+    assert.deepEqual(db.prepare('SELECT id FROM security_audit ORDER BY id').all().map((r) => r.id), ['boundary', 'future', 'recent']);
   } finally { db.close(); }
 });
 
