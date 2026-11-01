@@ -15,7 +15,7 @@ function database() {
   return db;
 }
 
-test('expand migrations preserve existing records and all eight design tables exist', () => {
+test('expand migrations preserve existing records and baseline and sign-in tables exist', () => {
   const db = new DatabaseSync(':memory:');
   try {
     db.exec('PRAGMA foreign_keys=ON');
@@ -28,7 +28,7 @@ test('expand migrations preserve existing records and all eight design tables ex
     assert.deepEqual(db.prepare('SELECT * FROM identities').all(), before);
     assert.deepEqual(db.prepare('SELECT * FROM security_audit').all(), auditBefore);
     assert.deepEqual(db.prepare("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name").all().map((r) => r.name),
-      ['auth_codes', 'auth_requests', 'deletion_jobs', 'identities', 'oauth_clients', 'security_audit', 'sessions', 'users']);
+      ['auth_codes', 'auth_requests', 'deletion_jobs', 'identities', 'login_rate_limits', 'oauth_clients', 'provider_revocations', 'security_audit', 'sessions', 'users', 'webhook_deliveries']);
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
   } finally { db.close(); }
 });
@@ -131,7 +131,7 @@ test('audit pruning allows only rows older than 365 days and never allows update
   } finally { db.close(); }
 });
 
-test('Worker source has no audit UPDATE/DELETE path; migrations remain expand-only', () => {
+test('Worker source has no audit UPDATE/DELETE path; migrations preserve tables and columns', () => {
   const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]);
   for (const path of walk('workers/accounts/src')) {
     assert.doesNotMatch(readFileSync(path, 'utf8'), /\b(?:UPDATE\s+security_audit|DELETE\s+FROM\s+security_audit)\b/i);

@@ -10,13 +10,26 @@ test('auth-core declares no dependency of any kind', () => {
   }
 });
 
-test('foundation Worker exposes no login endpoint or cacheable authenticated content', async () => {
+test('unconfigured Worker exposes no login endpoint or cacheable authenticated content', async () => {
   const response = await worker.fetch(new Request('https://accounts.test/auth/login'));
   assert.equal(response.status, 503);
   assert.equal(response.headers.get('Cache-Control'), 'no-store');
   assert.equal(response.headers.get('Set-Cookie'), null);
   assert.equal(response.headers.get('Access-Control-Allow-Origin'), null);
   assert.match(response.headers.get('Permissions-Policy'), /serial=\(\)/);
+});
+
+test('release configuration includes only compiled module rules and no custom build commands', () => {
+  const config = JSON.parse(readFileSync('workers/accounts/wrangler.json', 'utf8'));
+  assert.equal(config.main, 'workers/accounts/src/index.js');
+  assert.equal(config.base_dir, '.');
+  assert.equal(config.find_additional_modules, true);
+  for (const scope of [config, ...Object.values(config.env ?? {})]) {
+    assert.equal(scope.build, undefined, '--no-bundle does not suppress custom build commands');
+    assert.equal(scope.workers_dev, false);
+    assert.equal(scope.preview_urls, false);
+    assert.equal(scope.observability.enabled, false);
+  }
 });
 
 test('workflow keeps Cloudflare secrets in gated deploy jobs and pins every action', () => {

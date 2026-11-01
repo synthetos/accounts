@@ -1,25 +1,30 @@
 # Synthetos Accounts
 
 Foundations for accounts.synthetos.com, following RUN_PLAN §3 and Track A1.
-The Worker is deliberately a 503 shell. No authentication endpoint is live.
+GitHub sign-in and accounts sessions are implemented locally. The Worker defaults
+to a 503 response until explicitly configured; no authentication endpoint is live.
 
 ## Current validation status
 
-A1-01 and A1-02 implementation and local acceptance checks pass:
+A1-01 and A1-02 are independently accepted. A1-03 is implemented and awaiting review:
 
 - Frozen clean installation with lifecycle scripts disabled.
 - TypeScript, ESLint, dependency-cruiser and dependency licences.
-- 47 unit/schema/policy tests, including independent crypto vectors and audit retention boundaries.
+- 58 unit/schema/policy tests, including independent crypto vectors, audit retention
+  boundaries and GitHub sign-in failure cases.
 - Stryker: **94.54%**, 519 killed / 549 total, 30 survivors, no timeouts or errors;
   threshold remains 90%. Every mutated source file scores above 90%.
 - Local Wrangler D1: migration application, repeated application, fixture seed,
   provider/subject uniqueness rejection and audit retention guards.
+- Built Worker on local workerd/D1: complete sign-in with intercepted GitHub requests,
+  session validation and callback replay refusal. No requests reach GitHub.
 - Two clean source-copy builds produce identical bytes; the separate build
   toolchain installs only TypeScript, and the built Worker passes its smoke check.
 
 The initial sandbox restrictions were removed before the mutation and D1 runs.
-The independent collaborator has accepted A1-01 and A1-02. Confirmation of the
-later licence-gate and encoding regressions remains pending. No hosted CI run, push, resource provisioning
+The independent collaborator has accepted A1-01 and A1-02. A1-03 review and
+confirmation of the later licence-gate and encoding regressions remain pending.
+No hosted CI run, push, resource provisioning
 or deployment has been performed. These are foundations, not a
 production-ready identity service.
 
@@ -27,7 +32,9 @@ production-ready identity service.
 
 - `packages/auth-core`: no runtime dependencies; WebCrypto, Fetch request objects
   and cookie serialization. No network calls or persistence.
-- `workers/accounts`: service shell; session and provider routes come in A1-03+.
+- `packages/idp`: provider interface and GitHub App adapter; zero npm dependencies.
+- `workers/accounts`: browser-bound sign-in, accounts sessions, revocation webhook
+  and storage. OIDC/RPC and account-management pages come in A1-04/A1-05.
 - `migrations`: forward identity schema migrations and indexes, with synthetic test fixtures.
 - `ci/build-toolchain`: TypeScript only, pinned independently of test tools.
 - `ci/deploy-toolchain`: Wrangler only, pinned separately from the build.
@@ -74,6 +81,51 @@ cap is unchanged. Signing and verification both reject audience arrays.
 Pass the expected nonce when the authorization request used
 one. Never choose a key or issuer from unverified token URLs. This is an ID-token
 helper, not a generic access-token or multi-audience OIDC implementation.
+
+## GitHub sign-in (A1-03)
+
+`GET /login` renders a script-free form with a nonce cookie and synchronizer token.
+`POST /login` requires the exact Origin, form token and cookie, limits starts to
+10 per hashed edge IP per 10 minutes, and redirects to GitHub with state and S256
+PKCE. The callback consumes state atomically only when its browser cookie matches.
+The verifier is encrypted with AES-GCM and bound to the origin and state/nonce
+hashes. OAuth's callback GET is the protocol exception to the form mutation rule.
+Return paths are restricted local paths; arbitrary redirect URLs are never accepted.
+
+The adapter uses the [GitHub App user-authorization flow](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app).
+It requests no scope or refresh token, calls `/user` once and persists only the
+selected identity fields. Email is discarded even if GitHub returns it. Tokens
+are neither persisted nor logged. Redirects are handled manually and rejected on
+both outbound requests. Profile avatars are stored as metadata, never fetched or
+rendered. Public provider errors and request errors contain no upstream details.
+
+Accounts session cookies are host-only, Secure, HttpOnly and SameSite=Lax, with
+30-day absolute and 14-day idle expiry. D1 holds only token hashes. Every request
+opens a [first-primary D1 session](https://developers.cloudflare.com/d1/best-practices/read-replication/);
+validation checks account status and revocation, with idle timestamp writes at
+most every five minutes. New sessions are refused for locked/deleting users and
+for flows that began before a recorded GitHub revocation.
+
+`POST /webhooks/github` verifies HMAC-SHA256 over the body with WebCrypto and
+deduplicates delivery IDs for seven days in the same D1 batch as revocation.
+Distinct legitimate revocations can have identical bodies, so payload hashes are
+not unique. GitHub's signature covers the body, not the delivery-ID header; this
+is delivery-ID replay protection, not an independent signed freshness guarantee.
+
+Required bindings/configuration: `AUTH_ENABLED=true`, exact HTTPS `ACCOUNT_ORIGIN`,
+`IDENTITY` D1, and the new zero-permission app's `GITHUB_APP_ID`, `GITHUB_CLIENT_ID`
+and `GITHUB_CLIENT_SECRET`. The forum app ID is explicitly refused. Secrets
+`OAUTH_STATE_KEY`, `FORM_KEY` and `RATE_KEY` are independent canonical base64url
+32-byte keys; `GITHUB_WEBHOOK_SECRET` must contain at least 32 UTF-8 bytes. Never
+reuse production secrets in fixtures. Invocation observability is explicitly
+disabled, and application code does not log requests, credentials or upstream errors.
+No real app registration, secrets or database bindings are included in this repo.
+
+Before release, A1-07 must provide those resources, the production tester allowlist
+and staging Access protection. Scheduled retention for old login requests, rate
+buckets, revocation metadata and audit/session rows still needs implementation;
+webhook delivery cleanup occurs on webhook processing. Account management and
+step-up are A1-05. A1-04 must persist and echo the RP nonce in a forward migration.
 
 Tests use the [RFC 7636 appendix B vector](https://www.rfc-editor.org/rfc/rfc7636#appendix-B)
 and independent Node crypto signing/verification. JWT validation follows the

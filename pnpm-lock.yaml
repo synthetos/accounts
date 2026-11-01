@@ -26,6 +26,8 @@ importers:
 
   packages/auth-core: {}
 
+  packages/idp: {}
+
   workers/accounts: {}
 
 packages:

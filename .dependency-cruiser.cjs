@@ -1,6 +1,11 @@
 module.exports = {
   forbidden: [
     {
+      name: 'idp-cannot-reach-worker', severity: 'error',
+      from: { path: '^packages/idp/src/' },
+      to: { path: '^workers/', reachable: true },
+    },
+    {
       name: 'auth-core-is-standalone', severity: 'error',
       from: { path: '^packages/auth-core/src/' },
       to: { pathNot: '^packages/auth-core/src/', reachable: true },

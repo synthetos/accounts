@@ -51,9 +51,14 @@ A1-04 must add a nullable RP OIDC `nonce` column in a forward migration before
 issuing ID tokens from authorization-code exchange. Preserve and echo the RP's
 nonce exactly; a stored hash alone cannot supply that claim. This is distinct
 from the pre-auth browser cookie binding in `auth_requests.browser_nonce_hash`.
-A1-03 must request no email scope, discard any email returned in GitHub's profile,
-and test that sign-in leaves `identities.email IS NULL` and `email_verified = 0`.
-Those endpoint tests require the future sign-in implementation.
+A1-03 requests no email scope, discards email returned in GitHub's profile, and
+tests that sign-in leaves `identities.email IS NULL` and `email_verified = 0`.
+`0004` adds sign-in request timestamps, atomic rate-limit counters, seven-day
+webhook delivery records and provider revocation timestamps. Accounts client
+registration is inserted idempotently. Revocation metadata prevents a callback
+started before revocation from minting a session; delivery-ID inserts and session
+revocation share one D1 batch. Distinct revocation events may have identical
+payloads, so only delivery IDs are unique, not payload hashes.
 
 Future schema changes use expand/contract: add nullable columns or compatible
 tables first; deploy readers/writers; backfill with a reviewed job; remove old

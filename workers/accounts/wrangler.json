@@ -4,5 +4,28 @@
   "compatibility_date": "2026-10-01",
   "workers_dev": false,
   "preview_urls": false,
-  "env": { "staging": { "name": "accounts-staging", "workers_dev": false, "preview_urls": false } }
+  "env": {
+    "staging": {
+      "name": "accounts-staging",
+      "workers_dev": false,
+      "preview_urls": false,
+      "observability": {
+        "enabled": false
+      }
+    }
+  },
+  "observability": {
+    "enabled": false
+  },
+  "find_additional_modules": true,
+  "base_dir": ".",
+  "rules": [
+    {
+      "type": "ESModule",
+      "globs": [
+        "**/*.js"
+      ],
+      "fallthrough": true
+    }
+  ]
 }
