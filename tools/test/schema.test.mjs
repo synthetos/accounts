@@ -28,7 +28,7 @@ test('expand migrations preserve existing records and baseline and sign-in table
     assert.deepEqual(db.prepare('SELECT * FROM identities').all(), before);
     assert.deepEqual(db.prepare('SELECT * FROM security_audit').all(), auditBefore);
     assert.deepEqual(db.prepare("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name").all().map((r) => r.name),
-      ['auth_codes', 'auth_requests', 'deletion_jobs', 'identities', 'login_rate_limits', 'oauth_clients', 'provider_revocations', 'security_audit', 'sessions', 'users', 'webhook_deliveries']);
+      ['auth_codes', 'auth_requests', 'authorization_requests', 'deletion_jobs', 'identities', 'login_rate_limits', 'oauth_clients', 'provider_revocations', 'security_audit', 'sessions', 'users', 'webhook_deliveries']);
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
   } finally { db.close(); }
 });

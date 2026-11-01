@@ -1,5 +1,7 @@
 module.exports = {
   forbidden: [
+    { name: 'runtime-builtin-only-in-entrypoints', severity: 'error',
+      from: { pathNot: '^workers/accounts/src/entrypoints\\.ts$' }, to: { path: '^cloudflare:workers$' } },
     {
       name: 'idp-cannot-reach-worker', severity: 'error',
       from: { path: '^packages/idp/src/' },
@@ -12,7 +14,8 @@ module.exports = {
     },
     {
       name: 'no-unresolved-imports', severity: 'error',
-      from: {}, to: { couldNotResolve: true },
+      // workerd provides this exact built-in; all other unresolved imports still fail.
+      from: {}, to: { couldNotResolve: true, pathNot: '^cloudflare:workers$' },
     },
     {
       name: 'no-outside-repo', severity: 'error',

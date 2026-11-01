@@ -5,7 +5,12 @@ import { utf8 } from '../../../packages/auth-core/src/encoding.ts';
 import { ACCOUNT_ABSOLUTE, Store, type IdentityDatabase } from './store.ts';
 import { check, escapeHtml, HttpError, key, keyedHash, readBody, returnPath, seal, single, unseal } from './security.ts';
 
+import { oidc } from './oidc.ts';
+
 export interface Env {
+  ID_TOKEN_PRIVATE_JWK?: string;
+  ID_TOKEN_KID?: string;
+  ID_TOKEN_PREVIOUS_JWKS?: string;
   AUTH_ENABLED?: string;
   ACCOUNT_ORIGIN?: string;
   GITHUB_APP_ID?: string;
@@ -22,7 +27,7 @@ const PREAUTH = '__Host-acct_oauth';
 
 function response(body: string | null, status = 200, extra: HeadersInit = {}, html = false, loginForm = false): Response {
   const headers = new Headers(extra);
-  headers.set('Content-Type', html ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8');
+  if (!headers.has('Content-Type')) headers.set('Content-Type', html ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8');
   headers.set('Cache-Control', 'no-store');
   // Chromium checks the form's redirect chain. Only the login form can navigate to GitHub.
   headers.set('Content-Security-Policy', "default-src 'none'; script-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" + (loginForm ? ' https://github.com' : ''));
@@ -63,6 +68,9 @@ export function createApp(deps: { provider?: IdentityProvider; now?: () => numbe
         const store = new Store(env.IDENTITY);
         const formKey = await key(env.FORM_KEY, 'HMAC');
         const stateKey = await key(env.OAUTH_STATE_KEY, 'AES-GCM');
+
+        const protocolResponse = await oidc(request, env, now);
+        if (protocolResponse) return response(protocolResponse.body === null ? null : await protocolResponse.text(), protocolResponse.status, protocolResponse.headers);
 
         if (url.pathname === '/login' && request.method === 'GET') {
           const returnTo = returnPath(url.searchParams.has('return_to') ? single(url.searchParams, 'return_to') : '/', origin);
@@ -139,6 +147,11 @@ export function createApp(deps: { provider?: IdentityProvider; now?: () => numbe
         return response('Not found.', 404);
       } catch (error) {
         // Never log the request, URL, upstream error, token, code, state or cookie.
+        if (new URL(request.url).pathname === '/token') {
+          const status = error instanceof HttpError ? error.status : error instanceof AuthError ? 400 : 503;
+          const code = status === 401 ? 'invalid_client' : status >= 500 ? 'server_error' : 'invalid_grant';
+          return response(JSON.stringify({ error: code }), status, { 'Content-Type': 'application/json', ...(status === 401 ? { 'WWW-Authenticate': 'Basic realm="accounts"' } : {}) });
+        }
         if (error instanceof HttpError) return response(error.message, error.status);
         if (error instanceof AuthError) return response('request_refused', 403);
         if (error instanceof ProviderError) return response('sign_in_unavailable', 502);

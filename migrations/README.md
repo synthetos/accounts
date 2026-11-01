@@ -47,8 +47,7 @@ at or before absolute expiry, the pruning query can use `idle_expires_at < cutof
 with `sessions_by_idle_expiry`; `sessions_by_expiry` remains for absolute expiry.
 Retention jobs and their scheduling are not implemented by A1-02.
 
-A1-04 must add a nullable RP OIDC `nonce` column in a forward migration before
-issuing ID tokens from authorization-code exchange. Preserve and echo the RP's
+`0005` adds a nullable RP OIDC `nonce` column for authorization-code exchange. Preserve and echo the RP's
 nonce exactly; a stored hash alone cannot supply that claim. This is distinct
 from the pre-auth browser cookie binding in `auth_requests.browser_nonce_hash`.
 A1-03 requests no email scope, discards email returned in GitHub's profile, and
@@ -76,3 +75,8 @@ an unguarded database. See [Cloudflare's migration rollback contract](https://de
 
 Production D1 resources, environment bindings, migration application and
 deployment remain part of A1-07. No resources have been created by this task.
+
+`0005` also adds the origin session FK, unique redemption marker, step-up columns
+and encrypted browser-bound authorization continuations. Legacy codes without an
+origin session cannot be exchanged. The step-up marker has no ordinary-login writer;
+A1-05 must set it only after a fresh same-subject provider round trip.

@@ -166,7 +166,7 @@
         },
         {
           "name": "Smoke test the actual artifact (foundation Worker)",
-          "run": "mkdir payload\ntar -xf artifact/accounts-worker.tar -C payload\nnode --input-type=module -e 'import worker from \"./payload/workers/accounts/src/index.js\"; const r = await worker.fetch(new Request(\"https://accounts.test/\")); if (r.status !== 503 || r.headers.get(\"Cache-Control\") !== \"no-store\") process.exit(1);'"
+          "run": "mkdir payload\ntar -xf artifact/accounts-worker.tar -C payload\nnode --input-type=module -e 'import { createApp } from \"./payload/workers/accounts/src/app.js\"; const worker = createApp(); const r = await worker.fetch(new Request(\"https://accounts.test/\")); if (r.status !== 503 || r.headers.get(\"Cache-Control\") !== \"no-store\") process.exit(1);'"
         }
       ],
       "needs": [

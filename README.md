@@ -1,31 +1,32 @@
 # Synthetos Accounts
 
 Foundations for accounts.synthetos.com, following RUN_PLAN §3 and Track A1.
-GitHub sign-in and accounts sessions are implemented locally. The Worker defaults
+GitHub sign-in, accounts sessions and the A1-04 OIDC/RPC handoff are implemented locally. The Worker defaults
 to a 503 response until explicitly configured; no authentication endpoint is live.
 
 ## Current validation status
 
-A1-01 and A1-02 are independently accepted. A1-03 is implemented and awaiting review:
+A1-01 through A1-03 are independently accepted. A1-04 is implemented for review:
 
 - Frozen clean installation with lifecycle scripts disabled.
 - TypeScript, ESLint, dependency-cruiser and dependency licences.
-- 61 unit/schema/policy tests, including independent crypto vectors, audit retention
+- 73 unit/schema/policy/type-contract tests, including independent crypto vectors, audit retention
   boundaries and GitHub sign-in failure cases.
-- Stryker: **94.54%**, 519 killed / 549 total, 30 survivors, no timeouts or errors;
+- Auth-core Stryker: **94.54%**, 519 killed / 549 total, 30 survivors, no timeouts or errors;
   threshold remains 90%. Every mutated source file scores above 90%.
 - Local Wrangler D1: migration application, repeated application, fixture seed,
   provider/subject uniqueness rejection and audit retention guards.
 - Built Worker on local workerd/D1: complete sign-in with intercepted GitHub requests,
-  session validation and callback replay refusal. No requests reach GitHub.
+  session validation and callback replay refusal; OIDC/JWKS, concurrent redemption,
+  named/default/wrong RPC binding checks and forum/run isolation. No requests reach GitHub.
 - Real Chromium form-navigation regression, with separate CSP and Origin controls
   and blocked network fallback. See [browser test instructions](test/browser/README.md).
 - Two clean source-copy builds produce identical bytes; the separate build
   toolchain installs only TypeScript, and the built Worker passes its smoke check.
 
 The initial sandbox restrictions were removed before the mutation and D1 runs.
-The independent collaborator has accepted A1-01 and A1-02. A1-03 review and
-confirmation of the later licence-gate and encoding regressions remain pending.
+The independent collaborator accepted A1-03 at `6b240ff`. A1-04 independent
+review remains required before building on it.
 No hosted CI run, push, resource provisioning
 or deployment has been performed. These are foundations, not a
 production-ready identity service.
@@ -36,7 +37,8 @@ production-ready identity service.
   and cookie serialization. No network calls or persistence.
 - `packages/idp`: provider interface and GitHub App adapter; zero npm dependencies.
 - `workers/accounts`: browser-bound sign-in, accounts sessions, revocation webhook
-  and storage. OIDC/RPC and account-management pages come in A1-04/A1-05.
+  and storage, plus authorization-code OIDC and the named run RPC entrypoint.
+  Account-management pages and step-up come in A1-05.
 - `migrations`: forward identity schema migrations and indexes, with synthetic test fixtures.
 - `ci/build-toolchain`: TypeScript only, pinned independently of test tools.
 - `ci/deploy-toolchain`: Wrangler only, pinned separately from the build.
@@ -136,8 +138,11 @@ Before release, A1-07 must provide those resources, the production tester allowl
 and staging Access protection. Scheduled retention for old login requests, rate
 buckets when there is no login traffic, revocation metadata and audit/session rows still needs implementation;
 webhook delivery cleanup occurs on webhook processing. Account management and
-step-up are A1-05. A1-04 must persist and echo the RP nonce in a forward migration.
+step-up are A1-05. A1-04 persists and echoes the RP nonce in migration `0005`.
+See [the RP contract](docs/RP_CONTRACT.md) for supported endpoints, RPC methods,
+client registration, device binding and remaining integration requirements.
 
+The real Chromium browser check must become a CI job before A1-07.
 A1-07 release gates also include enforcing D37's GitHub numeric-ID allowlist
 at the `Store.signIn(provider, profile, ...)` admission boundary, before identity
 or session creation, with an audited refusal. The allowlist must come from trusted

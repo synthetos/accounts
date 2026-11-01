@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import worker from '../../workers/accounts/src/index.ts';
+import { createApp } from '../../workers/accounts/src/app.ts';
+const worker = createApp();
 
 test('auth-core declares no dependency of any kind', () => {
   const manifest = JSON.parse(readFileSync('packages/auth-core/package.json', 'utf8'));
