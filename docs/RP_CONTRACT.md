@@ -45,7 +45,10 @@ originating accounts session. Exchange rechecks that session and the user's acti
 status, as well as current client registration. One D1 batch consumes the code,
 creates the client session and inserts its audit entry. A unique per-attempt
 redemption marker prevents two exchanges in the same second from both succeeding.
-A failed batch rolls back all three writes.
+A failed batch rolls back all three writes. Code issuance also inserts an
+`authorization.code_issued` audit row in the same transaction, recording client,
+origin session, user and original `auth_at`, without code, nonce or state.
+First-party SSO is silent; there is no additional consent page.
 
 ## Run binding
 
@@ -60,7 +63,12 @@ particular caller Worker identity.
 returns `{sessionToken, idToken, expiresIn, session}`. Context comes from the trusted
 run Worker, never an unchecked browser object. Before setting `__Host-run_sid`, run
 must create/check the device row against `session.sub`; on failure it must revoke
-the new session and refuse sign-in. The cross-database device association cannot
+the new session and refuse sign-in. Cookie creation is the final success step,
+never the default: the A1-06 handoff wrapper must exchange, bind, and only then
+construct the Set-Cookie response; its failure branch must revoke the new session.
+A1-06 must inject a device-bind failure and assert both revocation and absence of
+Set-Cookie. That test belongs to run, whose files are not changed here.
+The cross-database device association cannot
 be enforced with an identity-D1 foreign key.
 
 The cookie is host-only, Secure, HttpOnly, Path=/ and SameSite=Strict. Normal run
@@ -116,9 +124,14 @@ opaque session lifetime. Validate signature, trusted issuer/key source, expected
 audience/nonce, lifetime and timestamps. Auth-core requires an explicit clock
 allowance (0..60 seconds for iat/nbf only); expiry remains strict.
 
-`ID_TOKEN_PRIVATE_JWK` is the secret P-256 private JWK; `ID_TOKEN_KID` selects it.
+`ID_TOKEN_PRIVATE_JWK` is the secret P-256 private JWK. The `kid` is derived
+automatically as the base64url SHA-256 [RFC 7638 thumbprint](https://datatracker.ietf.org/doc/html/rfc7638)
+of the required public members in canonical order (`crv`, `kty`, `x`, `y`).
+There is no separately configured ID_TOKEN_KID; changing public key material
+changes its identifier. Optional JWK metadata does not affect it.
 `ID_TOKEN_PREVIOUS_JWKS`, if set, is a JSON array of at most four public EC keys
-with distinct kids. `/jwks` publishes only public allowlisted coordinates and
+with distinct public-key thumbprints. An optional supplied `kid` must match the
+derived thumbprint; private keys and duplicate thumbprints are refused. `/jwks` publishes only public allowlisted coordinates and
 metadata, never `d` or caller-supplied key URLs. Signing configuration is checked
 before consuming a code. Rotate by publishing the new public key ahead of issuer
 switch-over and retaining previous public keys for at least ten minutes after

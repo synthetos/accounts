@@ -38,12 +38,17 @@ export class OidcStore {
     check(row !== null); return row.request_enc;
   }
   async issue(codeHash: string, accountHash: string, request: Authorization, now: number): Promise<void> {
-    const result = await this.q(`INSERT INTO auth_codes(code_hash,user_id,client,redirect_uri,code_challenge,auth_at,expires_at,nonce,origin_session_id,step_up_at)
+    const results = await this.db.batch([
+      this.q(`INSERT INTO auth_codes(code_hash,user_id,client,redirect_uri,code_challenge,auth_at,expires_at,nonce,origin_session_id,step_up_at)
       SELECT ?,s.user_id,?,?,?,s.auth_at,?,?,s.id,s.step_up_at FROM sessions s JOIN users u ON u.id=s.user_id
       WHERE s.token_hash=? AND s.client='accounts' AND ${ACTIVE}
       AND EXISTS(SELECT 1 FROM oauth_clients c,json_each(c.redirect_uris_json) r WHERE c.id=? AND r.type='text' AND r.value=?)`,
-    codeHash, request.client, request.redirectUri, request.challenge, now + 60, request.nonce, accountHash, now, now, now, request.client, request.redirectUri).run();
-    check(result.meta.changes === 1, 403, 'authorization_refused');
+    codeHash, request.client, request.redirectUri, request.challenge, now + 60, request.nonce, accountHash, now, now, now, request.client, request.redirectUri),
+      this.q(`INSERT INTO security_audit(id,user_id,at,session_id,client,event,detail_json)
+        SELECT ?,user_id,?,origin_session_id,client,'authorization.code_issued',json_object('auth_at',auth_at)
+        FROM auth_codes WHERE code_hash=?`, `aud_${randomToken()}`, now, codeHash),
+    ]);
+    check(results[0]?.meta.changes === 1 && results[1]?.meta.changes === 1, 403, 'authorization_refused');
   }
   async redeem(input: { codeHash: string; challenge: string; client: string; kind: string; secretHash: string | null;
     redirectUri: string; device: string | null; shared: boolean; tokenHash: string }, now: number): Promise<Session & { nonce: string | null }> {

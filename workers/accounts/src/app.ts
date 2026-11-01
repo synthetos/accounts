@@ -9,7 +9,6 @@ import { oidc } from './oidc.ts';
 
 export interface Env {
   ID_TOKEN_PRIVATE_JWK?: string;
-  ID_TOKEN_KID?: string;
   ID_TOKEN_PREVIOUS_JWKS?: string;
   AUTH_ENABLED?: string;
   ACCOUNT_ORIGIN?: string;

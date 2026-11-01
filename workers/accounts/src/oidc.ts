@@ -1,5 +1,5 @@
 import { clearHostCookie, hashToken, hostCookie, pkceChallenge, randomToken, readHostCookie, signIdToken } from '../../../packages/auth-core/src/index.ts';
-import { decodeBase64url, utf8 } from '../../../packages/auth-core/src/encoding.ts';
+import { base64url, decodeBase64url, utf8 } from '../../../packages/auth-core/src/encoding.ts';
 import type { Env } from './app.ts';
 import { OidcStore, type Authorization, type Client, type Identity, type Session } from './oidc-store.ts';
 import { check, key, keyedHash, readBody, seal, single, unseal } from './security.ts';
@@ -56,16 +56,18 @@ async function authorization(params: URLSearchParams, store: OidcStore): Promise
   return { client: id, redirectUri, challenge, state, nonce, prompt };
 }
 interface PublicKey extends JsonWebKey { kid: string; alg: 'ES256'; use: 'sig'; kty: 'EC'; crv: 'P-256'; x: string; y: string }
-function publicJwk(value: JsonWebKey, kid: string): PublicKey {
-  bounded(kid, 100);
+async function publicJwk(value: JsonWebKey): Promise<PublicKey> {
   check(value.kty === 'EC' && value.crv === 'P-256' && typeof value.x === 'string' && typeof value.y === 'string' &&
     decodeBase64url(value.x).length === 32 && decodeBase64url(value.y).length === 32, 503, 'service_unavailable');
+  // RFC 7638: required public EC members only, in lexicographic member order.
+  const canonical = JSON.stringify({ crv: 'P-256', kty: 'EC', x: value.x, y: value.y });
+  const kid = base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', utf8(canonical))));
   return { kty: 'EC', crv: 'P-256', x: value.x, y: value.y, kid, alg: 'ES256', use: 'sig' };
 }
 async function signing(env: Env): Promise<{ privateKey: CryptoKey; kid: string; keys: PublicKey[] }> {
-  check(env.ID_TOKEN_PRIVATE_JWK && env.ID_TOKEN_KID, 503, 'service_unavailable');
+  check(env.ID_TOKEN_PRIVATE_JWK, 503, 'service_unavailable');
   const jwk = JSON.parse(env.ID_TOKEN_PRIVATE_JWK) as JsonWebKey;
-  const current = publicJwk(jwk, env.ID_TOKEN_KID);
+  const current = await publicJwk(jwk);
   check(typeof jwk.d === 'string' && decodeBase64url(jwk.d).length === 32, 503, 'service_unavailable');
   const privateKey = await crypto.subtle.importKey('jwk', { ...current, d: jwk.d }, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
   const publicKey = await crypto.subtle.importKey('jwk', current, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
@@ -77,9 +79,10 @@ async function signing(env: Env): Promise<{ privateKey: CryptoKey; kid: string; 
   if (env.ID_TOKEN_PREVIOUS_JWKS) {
     const previous: unknown = JSON.parse(env.ID_TOKEN_PREVIOUS_JWKS);
     check(Array.isArray(previous) && previous.length <= 4, 503, 'service_unavailable');
-    for (const entry of previous as (JsonWebKey & { kid: string })[]) {
-      check(entry && entry.d === undefined && typeof entry.kid === 'string' && !keys.some((k) => k.kid === entry.kid), 503, 'service_unavailable');
-      const published = publicJwk(entry, entry.kid);
+    for (const entry of previous as (JsonWebKey & { kid?: string })[]) {
+      check(entry && entry.d === undefined, 503, 'service_unavailable');
+      const published = await publicJwk(entry);
+      check((entry.kid === undefined || entry.kid === published.kid) && !keys.some((k) => k.kid === published.kid), 503, 'service_unavailable');
       await crypto.subtle.importKey('jwk', published, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
       keys.push(published);
     }

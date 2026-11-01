@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createPublicKey, verify } from 'node:crypto';
+import { createHash, createPublicKey, verify } from 'node:crypto';
 import { fixture, origin, cookie, sha } from './fixture.mjs';
 import { Store } from '../src/store.ts';
 import { runRpc } from '../src/rpc.ts';
@@ -11,7 +11,7 @@ const forumRedirect = 'https://forum.example.test/auth/callback';
 async function setup() {
   const f = fixture();
   const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign','verify']);
-  f.env.ID_TOKEN_PRIVATE_JWK = JSON.stringify(await crypto.subtle.exportKey('jwk', keys.privateKey)); f.env.ID_TOKEN_KID = 'fixture-key';
+  f.env.ID_TOKEN_PRIVATE_JWK = JSON.stringify(await crypto.subtle.exportKey('jwk', keys.privateKey));
   f.db.prepare("INSERT INTO oauth_clients(id,name,kind,redirect_uris_json) VALUES ('run','Run','binding',?)").run(JSON.stringify([runRedirect]));
   f.db.prepare("INSERT INTO oauth_clients(id,name,kind,redirect_uris_json,secret_hash) VALUES ('forum-synthetos','Forum','confidential',?,?)")
     .run(JSON.stringify([forumRedirect]), sha('forum-secret'));
@@ -41,7 +41,10 @@ test('authorization code binds client, exact redirect and S256; JWKS verifies ES
   const f = await setup();
   try {
     const discovery = await f.call('/.well-known/openid-configuration'); const metadata = await discovery.json();
-    assert.equal(metadata.issuer, origin); assert.deepEqual(metadata.response_types_supported, ['code']); assert.equal(discovery.headers.get('Cache-Control'), 'no-store');
+    assert.equal(metadata.issuer, origin); assert.deepEqual(metadata.response_types_supported, ['code']);
+    assert.deepEqual(metadata.code_challenge_methods_supported,['S256']);
+    assert.deepEqual(metadata.token_endpoint_auth_methods_supported,['client_secret_basic']);
+    assert.deepEqual(metadata.id_token_signing_alg_values_supported,['ES256']); assert.equal(discovery.headers.get('Cache-Control'), 'no-store');
     const flow = await f.authorize();
     assert.equal(new URL(flow.response.headers.get('Location')).searchParams.get('state'), flow.params.get('state'));
     const stored = f.db.prepare('SELECT * FROM auth_codes').get();
@@ -52,7 +55,7 @@ test('authorization code binds client, exact redirect and S256; JWKS verifies ES
     assert.equal(f.db.prepare("SELECT token_hash FROM sessions WHERE client='run'").get().token_hash, sha(result.sessionToken));
     const jwks = await (await f.call('/jwks')).json(); assert.equal(jwks.keys.length, 1); assert.equal(jwks.keys[0].d, undefined);
     const [h, p, s] = result.idToken.split('.'); const header = JSON.parse(Buffer.from(h,'base64url')); const claims = JSON.parse(Buffer.from(p,'base64url'));
-    assert.deepEqual(header, { alg: 'ES256', typ: 'JWT', kid: 'fixture-key' });
+    assert.deepEqual(header, { alg: 'ES256', typ: 'JWT', kid: jwks.keys[0].kid });
     assert.ok(verify('sha256', Buffer.from(`${h}.${p}`), { key: createPublicKey({ key: jwks.keys[0], format: 'jwk' }), dsaEncoding: 'ieee-p1363' }, Buffer.from(s,'base64url')));
     assert.equal(claims.iss, origin); assert.equal(claims.aud,'run'); assert.equal(claims.sub,result.session.sub);
     assert.equal(claims.exp - claims.iat,60); assert.equal(claims.auth_time,f.now); assert.equal(claims.nonce,flow.params.get('nonce'));
@@ -67,6 +70,7 @@ test('parallel same-second redemption creates exactly one session and audit; wro
     const flow = await f.authorize();
     await assert.rejects(f.rpc().exchangeCode(flow.code,(await createPkce()).verifier,{redirectUri:runRedirect,deviceRecordId:'d'}));
     await assert.rejects(f.exchange(flow,{redirectUri:runRedirect+'?evil=1'}));
+    await assert.rejects(f.exchange(flow,{redirectUri:runRedirect+'/'}));
     const forum = await f.authorize('forum-synthetos'); await assert.rejects(f.exchange(forum));
     const attempts = await Promise.allSettled([f.exchange(flow),f.exchange(flow)]);
     assert.equal(attempts.filter((r)=>r.status==='fulfilled').length,1);
@@ -178,10 +182,10 @@ test('signing configuration fails before code consumption and rotation publishes
     const flow=await f.authorize();const original=f.env.ID_TOKEN_PRIVATE_JWK;
     delete f.env.ID_TOKEN_PRIVATE_JWK;await assert.rejects(f.exchange(flow));assert.equal(f.db.prepare('SELECT used_at FROM auth_codes').get().used_at,null);
     f.env.ID_TOKEN_PRIVATE_JWK=original;const old=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
-    f.env.ID_TOKEN_PREVIOUS_JWKS=JSON.stringify([{...await crypto.subtle.exportKey('jwk',old.publicKey),kid:'old-key',x5u:'https://evil.test'}]);
+    f.env.ID_TOKEN_PREVIOUS_JWKS=JSON.stringify([{...await crypto.subtle.exportKey('jwk',old.publicKey),x5u:'https://evil.test'}]);
     const keys=(await (await f.call('/jwks')).json()).keys;assert.equal(keys.length,2);assert.equal(keys[1].x5u,undefined);assert.equal(keys[1].d,undefined);
     await f.exchange(flow);
-    f.env.ID_TOKEN_PREVIOUS_JWKS=JSON.stringify([{...await crypto.subtle.exportKey('jwk',old.privateKey),kid:'old-key'}]);assert.equal((await f.call('/jwks')).status,503);
+    f.env.ID_TOKEN_PREVIOUS_JWKS=JSON.stringify([{...await crypto.subtle.exportKey('jwk',old.privateKey)}]);assert.equal((await f.call('/jwks')).status,503);
   } finally { f.close(); }
 });
 
@@ -212,5 +216,94 @@ test('absolute expiry and account lock are checked even when idle time is still 
     assert.equal(near.idleExpiresAt,result.session.absoluteExpiresAt);
     f.now+=1;assert.equal(await f.rpc().validateSession(result.sessionToken),null);
     f.now-=2;f.db.exec("UPDATE users SET status='locked'");assert.equal(await f.rpc().validateSession(result.sessionToken),null);
+  } finally { f.close(); }
+});
+
+test('confidential clients must supply a verifier even with valid Basic credentials', async () => {
+  const f=await setup();
+  try {
+    const flow=await f.authorize('forum-synthetos');
+    const response=await f.call('/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded',Authorization:`Basic ${btoa('forum-synthetos:forum-secret')}`},
+      body:new URLSearchParams({grant_type:'authorization_code',code:flow.code,redirect_uri:forumRedirect})});
+    assert.equal(response.status,400);assert.equal((await response.json()).error,'invalid_grant');
+    assert.equal(f.db.prepare('SELECT used_at FROM auth_codes').get().used_at,null);
+    assert.equal((await f.forumExchange(flow)).status,200);
+  } finally { f.close(); }
+});
+
+test('every issued code is atomically audited with client and original auth_at; failed audit leaves no code', async () => {
+  const f=await setup();
+  try {
+    const authAt=f.now;f.now+=20;await f.authorize();
+    const audit=f.db.prepare("SELECT * FROM security_audit WHERE event='authorization.code_issued'").get();
+    assert.equal(audit.client,'run');assert.equal(audit.at,f.now);assert.deepEqual(JSON.parse(audit.detail_json),{auth_at:authAt});
+    assert.equal(audit.session_id,f.db.prepare("SELECT id FROM sessions WHERE client='accounts'").get().id);
+    const count=f.db.prepare('SELECT count(*) n FROM auth_codes').get().n;
+    f.db.exec("CREATE TRIGGER test_issue_audit BEFORE INSERT ON security_audit WHEN NEW.event='authorization.code_issued' BEGIN SELECT RAISE(ABORT,'synthetic-secret'); END");
+    const {params}=await f.params();const response=await f.call(`/authorize?${params}`,{headers:{Cookie:f.accountCookie}});
+    assert.equal(response.status,503);assert.equal(response.headers.has('Location'),false);assert.equal((await response.text()).includes('synthetic-secret'),false);
+    assert.equal(f.db.prepare('SELECT count(*) n FROM auth_codes').get().n,count);
+  } finally { f.close(); }
+});
+
+test('resume rechecks client removal/redirect changes and refuses ciphertext transplanted between nonce-bound continuations', async () => {
+  for(const change of ['client','redirect','ciphertext']) {
+    const f=await setup();
+    try {
+      const {params}=await f.params();const first=await f.call(`/authorize?${params}`);
+      let response=first;
+      if(change==='client') f.db.exec("DELETE FROM oauth_clients WHERE id='run'");
+      if(change==='redirect') f.db.exec("UPDATE oauth_clients SET redirect_uris_json='[\"https://run.example.test/other\"]' WHERE id='run'");
+      if(change==='ciphertext') {
+        const saved=f.db.prepare('SELECT request_enc FROM authorization_requests').get().request_enc;
+        response=await f.call(`/authorize?${params}`);
+        const secondResume=new URL(response.headers.get('Location'),origin).searchParams.get('return_to').split('/').pop();
+        f.db.prepare('UPDATE authorization_requests SET request_enc=? WHERE resume_hash=?').run(saved,sha(secondResume));
+      }
+      const path=new URL(response.headers.get('Location'),origin).searchParams.get('return_to');
+      const resumed=await f.call(path,{headers:{Cookie:`${f.accountCookie}; ${cookie(response,'__Host-acct_authorize')}`}});
+      assert.ok(resumed.status>=400,change);assert.equal(resumed.headers.has('Location'),false);
+      assert.equal(f.db.prepare('SELECT count(*) n FROM auth_codes').get().n,0);
+    } finally { f.close(); }
+  }
+});
+
+test('JWKS contains only public fields; key-derived kids survive metadata changes and rotation preserves old token verification', async () => {
+  const f=await setup();
+  const allowed=['alg','crv','kid','kty','use','x','y'];
+  const thumbprint=(k)=>createHash('sha256').update(JSON.stringify({crv:k.crv,kty:k.kty,x:k.x,y:k.y})).digest('base64url');
+  try {
+    const oldToken=(await f.exchange(await f.authorize())).idToken;
+    const oldPublic=(await (await f.call('/jwks')).json()).keys[0];
+    assert.deepEqual(Object.keys(oldPublic).sort(),allowed);assert.equal(oldPublic.kid,thumbprint(oldPublic));
+    const privateJwk=JSON.parse(f.env.ID_TOKEN_PRIVATE_JWK);
+    f.env.ID_TOKEN_PRIVATE_JWK=JSON.stringify({...privateJwk,kid:'ignored-metadata',x5u:'https://invalid.test/key'});
+    assert.equal((await (await f.call('/jwks')).json()).keys[0].kid,oldPublic.kid);
+    const next=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+    f.env.ID_TOKEN_PRIVATE_JWK=JSON.stringify(await crypto.subtle.exportKey('jwk',next.privateKey));
+    f.env.ID_TOKEN_PREVIOUS_JWKS=JSON.stringify([oldPublic]);
+    const keys=(await (await f.call('/jwks')).json()).keys;
+    assert.equal(keys.length,2);assert.notEqual(keys[0].kid,oldPublic.kid);
+    for(const k of keys){assert.deepEqual(Object.keys(k).sort(),allowed);assert.equal(k.kid,thumbprint(k));}
+    const [h,p,s]=oldToken.split('.');const old=keys.find(k=>k.kid===JSON.parse(Buffer.from(h,'base64url')).kid);
+    assert.ok(verify('sha256',Buffer.from(`${h}.${p}`),{key:createPublicKey({key:old,format:'jwk'}),dsaEncoding:'ieee-p1363'},Buffer.from(s,'base64url')));
+    const newToken=(await f.exchange(await f.authorize())).idToken;
+    assert.equal(JSON.parse(Buffer.from(newToken.split('.')[0],'base64url')).kid,keys[0].kid);
+    f.env.ID_TOKEN_PREVIOUS_JWKS=JSON.stringify([{...oldPublic,kid:keys[0].kid}]);assert.equal((await f.call('/jwks')).status,503);
+  } finally { f.close(); }
+});
+
+test('default HTTP handler has no RPC dispatch route even with a valid run session', async () => {
+  const f=await setup();
+  try {
+    const session=await f.exchange(await f.authorize());
+    for(const method of ['exchangeCode','validateSession','revokeSession','revokeAll','listSessions','requestDeletion']) {
+      for(const prefix of ['/','/rpc/']) {
+        const response=await f.call(`${prefix}${method}`,{method:'POST',headers:{'Content-Type':'application/json',Cookie:f.accountCookie},body:JSON.stringify({token:session.sessionToken})});
+        assert.equal(response.status,404);
+      }
+    }
+    assert.ok(await f.rpc().validateSession(session.sessionToken));
+    assert.equal(f.db.prepare('SELECT status FROM users').get().status,'active');
   } finally { f.close(); }
 });

@@ -1,6 +1,6 @@
 import { createApp } from './app.ts';
 
-// Only the HTTP handler is exposed. Named RPC entrypoints arrive in A1-04.
+// The default export is HTTP only; RunEntrypoint is the sole named RPC capability.
 export default createApp();
 
 export { RunEntrypoint } from './entrypoints.ts';

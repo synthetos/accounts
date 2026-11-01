@@ -10,7 +10,7 @@ A1-01 through A1-03 are independently accepted. A1-04 is implemented for review:
 
 - Frozen clean installation with lifecycle scripts disabled.
 - TypeScript, ESLint, dependency-cruiser and dependency licences.
-- 73 unit/schema/policy/type-contract tests, including independent crypto vectors, audit retention
+- 78 unit/schema/policy/type-contract tests, including independent crypto vectors, audit retention
   boundaries and GitHub sign-in failure cases.
 - Auth-core Stryker: **94.54%**, 519 killed / 549 total, 30 survivors, no timeouts or errors;
   threshold remains 90%. Every mutated source file scores above 90%.

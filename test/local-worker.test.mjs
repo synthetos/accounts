@@ -21,7 +21,7 @@ test('built Worker completes GitHub/OIDC login and enforces named RPC binding, s
   const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: 'accounts',
     modules, modulesRoot: resolve('dist'),
     compatibilityDate: '2026-10-01', d1Databases: ['IDENTITY'],
-    bindings: { ID_TOKEN_PRIVATE_JWK: JSON.stringify(await crypto.subtle.exportKey('jwk', signer.privateKey)), ID_TOKEN_KID: 'local-key', AUTH_ENABLED: 'true', ACCOUNT_ORIGIN: origin, GITHUB_APP_ID: '123456',
+    bindings: { ID_TOKEN_PRIVATE_JWK: JSON.stringify(await crypto.subtle.exportKey('jwk', signer.privateKey)), AUTH_ENABLED: 'true', ACCOUNT_ORIGIN: origin, GITHUB_APP_ID: '123456',
       GITHUB_CLIENT_ID: 'fixture-client', GITHUB_CLIENT_SECRET: 'fixture-secret',
       OAUTH_STATE_KEY: Buffer.alloc(32, 1).toString('base64url'), FORM_KEY: Buffer.alloc(32, 2).toString('base64url'),
       RATE_KEY: Buffer.alloc(32, 3).toString('base64url'), GITHUB_WEBHOOK_SECRET: 'fixture-webhook-secret-long-enough' },
@@ -36,11 +36,17 @@ test('built Worker completes GitHub/OIDC login and enforces named RPC binding, s
       assert.equal(request.headers.get('Authorization'), 'Bearer ghu_local_only');
       return RuntimeResponse.json({ id: 23456, login: 'local-test', name: 'Local Test', avatar_url: null, email: 'discard@example.test' });
     },
-  }, { name: 'rp-test', compatibilityDate: '2026-10-01', modules: true,
-    script: `export default { async fetch(request,env) { const body=await request.json(); try {
-      const binding=body.default ? env.DEFAULT : env.ACCOUNTS;
-      return Response.json({result:await binding[body.method](...body.args)});
-    } catch { return Response.json({error:'refused'},{status:400}); } } };`,
+  }, { name: 'rp-test', compatibilityDate: '2026-10-01', modulesRoot: resolve('dist'),
+    modules: [{ type: 'ESModule', path: resolve('dist/rpc-probe.js'), contents:
+      `import * as main from './workers/accounts/src/index.js';
+       import {WorkerEntrypoint} from 'cloudflare:workers';
+       export default { async fetch(request,env) { const body=await request.json(); try {
+         if(body.method==='exports') return Response.json({names:Object.keys(main).sort(),
+           entrypoints:Object.entries(main).filter(([,value])=>typeof value==='function' && value.prototype instanceof WorkerEntrypoint).map(([name])=>name),
+           defaultMethods:Object.keys(main.default)});
+         const binding=body.default ? env.DEFAULT : env.ACCOUNTS;
+         return Response.json({result:await binding[body.method](...body.args)});
+       } catch { return Response.json({error:'refused'},{status:400}); } } };` }, ...modules],
     serviceBindings: { ACCOUNTS: { name: 'accounts', entrypoint: 'RunEntrypoint' }, DEFAULT: 'accounts' }
   }] }));
   try {
@@ -68,11 +74,15 @@ test('built Worker completes GitHub/OIDC login and enforces named RPC binding, s
     await db.prepare("INSERT INTO oauth_clients(id,name,kind,redirect_uris_json) VALUES ('run','Run','binding','[\"https://run.example.test/auth/callback\"]')").run();
     const rp = await mf.getWorker('rp-test');
     const rpc = (method,args,defaultBinding=false) => rp.fetch('https://rp.invalid/', {method:'POST',body:JSON.stringify({method,args,default:defaultBinding})});
+    assert.deepEqual(await (await rpc('exports',[])).json(), {names:['RunEntrypoint','default'],entrypoints:['RunEntrypoint'],defaultMethods:['fetch']});
     const verifier = Buffer.alloc(32, 5).toString('base64url');
     const params = new URLSearchParams({response_type:'code',scope:'openid',client_id:'run',redirect_uri:'https://run.example.test/auth/callback',
       state:'local-state',nonce:'local-nonce',code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256'});
     const auth = await mf.dispatchFetch(`${origin}/authorize?${params}`, {headers:{Cookie:sid.split(';')[0]},redirect:'manual'});
     assert.equal(auth.status,303,await auth.clone().text());
+    const issuedAudit = await db.prepare("SELECT client,detail_json FROM security_audit WHERE event='authorization.code_issued'").first();
+    assert.equal(issuedAudit.client,'run');
+    assert.equal(JSON.parse(issuedAudit.detail_json).auth_at,(await db.prepare("SELECT auth_at FROM sessions WHERE client='accounts'").first()).auth_at);
     const code = new URL(auth.headers.get('Location')).searchParams.get('code');
     const args = [code,verifier,{redirectUri:'https://run.example.test/auth/callback',deviceRecordId:'device-local'}];
     assert.equal((await rpc('exchangeCode',args,true)).status,400);
