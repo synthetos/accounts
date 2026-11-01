@@ -8,7 +8,7 @@
   ],
   "testRunner": "command",
   "commandRunner": {
-    "command": "node --test packages/auth-core/test/*.test.mjs workers/accounts/test/*.test.mjs"
+    "command": "node --import ./workers/accounts/test/no-network.mjs --test packages/auth-core/test/*.test.mjs workers/accounts/test/*.test.mjs"
   },
   "coverageAnalysis": "off",
   "thresholds": {

@@ -9,7 +9,7 @@
     "node": ">=22.18.0"
   },
   "scripts": {
-    "test": "node --test packages/auth-core/test/*.test.mjs workers/accounts/test/*.test.mjs tools/test/*.test.mjs",
+    "test": "node --import ./workers/accounts/test/no-network.mjs --test packages/auth-core/test/*.test.mjs workers/accounts/test/*.test.mjs tools/test/*.test.mjs",
     "test:auth": "node --test packages/auth-core/test/*.test.mjs",
     "test:d1": "node --test test/local-*.test.mjs",
     "typecheck": "tsc -p tsconfig.json",

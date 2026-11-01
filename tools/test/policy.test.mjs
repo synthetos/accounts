@@ -65,6 +65,8 @@ test('workflow keeps Cloudflare secrets in gated deploy jobs and pins every acti
   assert.ok(workflow.jobs.verify.steps.some((s) => s.run === 'pnpm mutation'));
   const mutation = JSON.parse(readFileSync('stryker.config.json', 'utf8'));
   assert.equal(mutation.thresholds.break, 90);
+  assert.match(mutation.commandRunner.command, /^node --import \.\/workers\/accounts\/test\/no-network\.mjs --test /);
+  assert.match(JSON.parse(readFileSync('package.json', 'utf8')).scripts.test, /^node --import \.\/workers\/accounts\/test\/no-network\.mjs --test /);
 });
 
 test('browser gate exercises the built artifact without deployment credentials', () => {

@@ -10,7 +10,7 @@ A1-01 through A1-05 are independently accepted. Accounts release gates are being
 
 - Frozen clean installation with lifecycle scripts disabled.
 - TypeScript, ESLint, dependency-cruiser and dependency licences.
-- 125 unit/schema/policy/type-contract tests, including independent crypto vectors, audit retention
+- 126 unit/schema/policy/type-contract tests, including independent crypto vectors, audit retention
   boundaries and GitHub sign-in failure cases.
 - Auth-core Stryker: **94.54%**, 519 killed / 549 total, 30 survivors, no timeouts or errors;
   threshold remains 90%. Every mutated source file scores above 90%.
@@ -159,7 +159,7 @@ The real Chromium browser check is a required secret-free CI job against the bui
 artifact. Stryker now mutates auth-core, idp and all accounts Worker executable
 source at the unchanged 90% threshold; declaration files alone are excluded.
 The first expanded baseline scored 75.31% (1,971 killed, 3 timed out, 647 survived
-of 2,621), correctly failing the 90% gate. The stronger suite is being rerun; no
+of 2,621), correctly failing the 90% gate. The stronger suite is being rerun with native fetch blocked in every test process; no
 expanded passing score is claimed yet. The earlier 94.54% result above covers
 auth-core only. Confidential HTTPS RPs have authenticated RFC 7662 `/introspect`;
 forumbot still needs its request-by-request integration and fail-closed tests.
@@ -188,3 +188,9 @@ These server settings cannot be enforced by PR-editable CI alone.
 
 Nothing has been pushed, deployed, or provisioned. The build/deploy lockfiles
 and action pins were taken from run commit `dc5accd`; no run files were changed.
+
+Native unit and mutation commands preload `workers/accounts/test/no-network.mjs`.
+This makes fallback to a real provider fail even when a mutation removes an
+injected fetch. Use `pnpm test`/`pnpm mutation`, or include that `--import` when
+running individual Worker test files. Platform tests instead use local workerd
+with an explicit synthetic outbound handler.
