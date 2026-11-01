@@ -18,8 +18,8 @@ A1-01 and A1-02 implementation and local acceptance checks pass:
   toolchain installs only TypeScript, and the built Worker passes its smoke check.
 
 The initial sandbox restrictions were removed before the mutation and D1 runs.
-The A1-01, A1-02 and licence-gate collaborator reviews have been addressed; confirmation of
-the fixes remains pending. No hosted CI run, push, resource provisioning
+The independent collaborator has accepted A1-01 and A1-02. Confirmation of the
+later licence-gate and encoding regressions remains pending. No hosted CI run, push, resource provisioning
 or deployment has been performed. These are foundations, not a
 production-ready identity service.
 
@@ -28,7 +28,7 @@ production-ready identity service.
 - `packages/auth-core`: no runtime dependencies; WebCrypto, Fetch request objects
   and cookie serialization. No network calls or persistence.
 - `workers/accounts`: service shell; session and provider routes come in A1-03+.
-- `migrations`: expand-only identity schema and indexes, with synthetic test fixtures.
+- `migrations`: forward identity schema migrations and indexes, with synthetic test fixtures.
 - `ci/build-toolchain`: TypeScript only, pinned independently of test tools.
 - `ci/deploy-toolchain`: Wrangler only, pinned separately from the build.
 - `tools`: build reproducibility and policy checks.

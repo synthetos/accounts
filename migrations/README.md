@@ -60,5 +60,14 @@ tables first; deploy readers/writers; backfill with a reviewed job; remove old
 fields only after the compatibility window and a separate review. Never edit a
 numbered migration after it has been applied. Use a new forward migration.
 
+Guard replacement is a narrow exception to strictly additive (expand-only)
+changes: a guard may be relaxed only to implement a published retention rule,
+with independent review and boundary tests. Keep the DROP and replacement CREATE
+in one migration file, as in `0003`; never split them across migrations or run
+them manually as separate commands. Apply through `wrangler d1 migrations apply`,
+whose per-migration atomicity keeps the guard replacement together. On failure,
+the entire migration rolls back, so the old guard remains rather than leaving
+an unguarded database. See [Cloudflare's migration rollback contract](https://developers.cloudflare.com/d1/wrangler-commands/#d1-migrations-apply).
+
 Production D1 resources, environment bindings, migration application and
 deployment remain part of A1-07. No resources have been created by this task.
