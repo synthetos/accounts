@@ -242,12 +242,16 @@ them the Worker fails closed (503).
 
 Each deploy job, on the verified artifact, now runs in this order:
 
+0. staging only: `tools/access-check.mjs --pre-deploy`, a positive check through the Cloudflare API that an
+   Access application covers the whole staging host with no Bypass or Everyone policy (run's D31 check);
 1. `tools/deploy-preflight.mjs`: refuses placeholders, a wrong host or origin, staging reusing production's
    app, the forum app, or an empty or malformed allowlist;
 2. the migrations, by binding (`IDENTITY`);
 3. `clients/<env>.sql`: registers the `run` relying party with exactly its own environment's callback,
    idempotently (the RP contract's "reviewed configuration");
-4. the deploy.
+4. the deploy;
+5. staging only: `tools/access-check.mjs --post-deploy` (anonymous requests must go to the Access login).
+   If any step after the deploy fails, the job deletes the staging Worker (`wrangler delete --force`).
 
 `tools/test/release-config.test.mjs` covers all of it. The owner's ordered go-live steps, for this
 repository and run together, are in run's

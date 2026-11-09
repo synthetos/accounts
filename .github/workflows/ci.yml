@@ -251,6 +251,14 @@
           "run": "mkdir payload\ntar -xf artifact/accounts-worker.tar -C payload"
         },
         {
+          "name": "Staging must already be behind Cloudflare Access (D31)",
+          "env": {
+            "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
+            "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
+          },
+          "run": "node tools/access-check.mjs --pre-deploy"
+        },
+        {
           "name": "Preflight: the environment is fully configured (A1-07)",
           "run": "node tools/deploy-preflight.mjs payload/wrangler.json staging"
         },
@@ -276,7 +284,25 @@
             "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
             "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
           },
-          "run": "ci/deploy-toolchain/node_modules/.bin/wrangler deploy --no-bundle --config payload/wrangler.json --env staging"
+          "run": "ci/deploy-toolchain/node_modules/.bin/wrangler deploy --no-bundle --config payload/wrangler.json --env staging",
+          "id": "deploy"
+        },
+        {
+          "name": "Post-deploy: staging is behind Cloudflare Access (D31)",
+          "env": {
+            "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
+            "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
+          },
+          "run": "node tools/access-check.mjs --post-deploy"
+        },
+        {
+          "name": "Undo: delete staging when a step after the deploy failed",
+          "if": "failure() && steps.deploy.outcome == 'success'",
+          "env": {
+            "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
+            "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
+          },
+          "run": "ci/deploy-toolchain/node_modules/.bin/wrangler delete --config payload/wrangler.json --env staging --force"
         }
       ],
       "needs": [
