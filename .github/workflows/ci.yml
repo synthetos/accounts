@@ -251,12 +251,24 @@
           "run": "mkdir payload\ntar -xf artifact/accounts-worker.tar -C payload"
         },
         {
+          "name": "Preflight: the environment is fully configured (A1-07)",
+          "run": "node tools/deploy-preflight.mjs payload/wrangler.json staging"
+        },
+        {
           "name": "Apply reviewed expand migrations before code",
           "env": {
             "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
             "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
           },
-          "run": "ci/deploy-toolchain/node_modules/.bin/wrangler d1 migrations apply identity --remote --config payload/wrangler.json --env staging"
+          "run": "ci/deploy-toolchain/node_modules/.bin/wrangler d1 migrations apply IDENTITY --remote --config payload/wrangler.json --env staging"
+        },
+        {
+          "name": "Register the run relying party for this environment (A1-07)",
+          "env": {
+            "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
+            "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
+          },
+          "run": "ci/deploy-toolchain/node_modules/.bin/wrangler d1 execute IDENTITY --remote --config payload/wrangler.json --env staging --file payload/clients/staging.sql"
         },
         {
           "name": "Deploy verified artifact without rebuilding",
@@ -328,12 +340,24 @@
           "run": "mkdir payload\ntar -xf artifact/accounts-worker.tar -C payload"
         },
         {
+          "name": "Preflight: the environment is fully configured (A1-07)",
+          "run": "node tools/deploy-preflight.mjs payload/wrangler.json production"
+        },
+        {
           "name": "Apply reviewed expand migrations before code",
           "env": {
             "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
             "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
           },
-          "run": "ci/deploy-toolchain/node_modules/.bin/wrangler d1 migrations apply identity --remote --config payload/wrangler.json"
+          "run": "ci/deploy-toolchain/node_modules/.bin/wrangler d1 migrations apply IDENTITY --remote --config payload/wrangler.json"
+        },
+        {
+          "name": "Register the run relying party for this environment (A1-07)",
+          "env": {
+            "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
+            "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
+          },
+          "run": "ci/deploy-toolchain/node_modules/.bin/wrangler d1 execute IDENTITY --remote --config payload/wrangler.json --file payload/clients/production.sql"
         },
         {
           "name": "Deploy verified artifact without rebuilding",

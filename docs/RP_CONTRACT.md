@@ -10,7 +10,9 @@ and prompt modes other than `none` are refused. There is no UserInfo endpoint.
 
 ## Registration and browser handoff
 
-Register each client in `oauth_clients` through reviewed configuration. Redirects
+Register each client in `oauth_clients` through reviewed configuration (A1-07: run is registered by
+`clients/staging.sql` and `clients/production.sql`, applied by the matching deploy job, each with only its
+own environment's callback). Redirects
 must be exact HTTPS strings with no credentials or fragments; no prefix, wildcard,
 normalization or subdomain matching. `run` is a binding client with exactly one
 registered callback. Confidential clients have a SHA-256 secret hash; provision

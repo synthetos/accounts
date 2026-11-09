@@ -175,14 +175,15 @@ ID strings (for example `["12345"]`), not logins. It permits at most 1,000 uniqu
 safe-integer IDs and 100,000 configuration characters. Missing/malformed config
 fails closed with 503; a non-listed identity receives 403 and a `sign_in.denied`
 audit row with no raw provider data. Request parameters cannot alter admission.
-Both checked-in environment defaults are `[]`; nobody can sign in until trusted
-configuration supplies IDs. There is no bypass switch. Removing an ID blocks
+Both environments now list one ID, `["231731"]` (the owner, `ril3y`), by the owner's decision
+of 2026-11-09 (run OD-26: "yes staging first, just my github account for now"). Changing the list is a
+reviewed change to `workers/accounts/wrangler.json`. There is no bypass switch. Removing an ID blocks
 new sign-ins; use explicit session revocation to invalidate an existing session.
 Step-up/link remain bound to an already admitted account and cannot create users.
 
-Before release, A1-07 must finish the remaining bindings and secret configuration,
-the separate staging app, owner-approved tester IDs
-and staging Access protection. Scheduled retention for old login requests, rate
+A1-07's release configuration is in place (see "A1-07 release configuration" below); what
+remains is owner-only: the separate staging app, the D1 databases, the Worker secrets and staging
+Access protection. Scheduled retention for old login requests, rate
 buckets when there is no login traffic, revocation metadata and audit/session rows still needs implementation;
 webhook delivery cleanup occurs on webhook processing. Account management and
 step-up are implemented in A1-05; full export and deletion processing remain A2-08.
@@ -225,6 +226,32 @@ A1-05's script-free form documents preserve the exact POST Origin with
 Tests use the [RFC 7636 appendix B vector](https://www.rfc-editor.org/rfc/rfc7636#appendix-B)
 and independent Node crypto signing/verification. JWT validation follows the
 algorithm and claim checks described in [RFC 8725](https://www.rfc-editor.org/rfc/rfc8725).
+
+## A1-07 release configuration
+
+`workers/accounts/wrangler.json` now carries, per environment:
+
+- the custom domain (`accounts.synthetos.com`, `staging.accounts.synthetos.com`);
+- the `IDENTITY` D1 database (`identity`, `identity-staging`), with a placeholder id until the owner creates it;
+- the non-secret variables `AUTH_ENABLED`, `ACCOUNT_ORIGIN`, `GITHUB_APP_ID`, `GITHUB_CLIENT_ID` and
+  `GITHUB_ALLOWED_IDS`. Staging's app id and client id are placeholders until the staging app exists.
+
+The six secrets are set by the owner on each Worker, never in a file: `GITHUB_CLIENT_SECRET`,
+`OAUTH_STATE_KEY`, `FORM_KEY`, `RATE_KEY`, `GITHUB_WEBHOOK_SECRET` and `ID_TOKEN_PRIVATE_JWK`. Without
+them the Worker fails closed (503).
+
+Each deploy job, on the verified artifact, now runs in this order:
+
+1. `tools/deploy-preflight.mjs`: refuses placeholders, a wrong host or origin, staging reusing production's
+   app, the forum app, or an empty or malformed allowlist;
+2. the migrations, by binding (`IDENTITY`);
+3. `clients/<env>.sql`: registers the `run` relying party with exactly its own environment's callback,
+   idempotently (the RP contract's "reviewed configuration");
+4. the deploy.
+
+`tools/test/release-config.test.mjs` covers all of it. The owner's ordered go-live steps, for this
+repository and run together, are in run's
+[docs/ops/go-live-staging.md](https://github.com/synthetos/run/blob/main/docs/ops/go-live-staging.md).
 
 ## CI and release controls
 

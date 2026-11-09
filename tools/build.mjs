@@ -11,4 +11,6 @@ const result = spawnSync(process.execPath, [compiler, '-p', 'tsconfig.build.json
 if (result.status !== 0) process.exit(result.status ?? 1);
 cpSync('workers/accounts/wrangler.json', `${output}/wrangler.json`);
 if (existsSync('migrations')) cpSync('migrations', `${output}/migrations`, { recursive: true });
+// A1-07: the reviewed per-environment relying-party registrations, applied by the deploy jobs.
+if (existsSync('clients')) cpSync('clients', `${output}/clients`, { recursive: true });
 mkdirSync(output, { recursive: true });
