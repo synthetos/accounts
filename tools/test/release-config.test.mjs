@@ -153,3 +153,35 @@ test('the staging deploy checks Access before anything else and after the deploy
   assert.equal(steps[undo].if, "failure() && steps.deploy.outcome == 'success'");
   for (const i of [pre, post, undo]) assert.deepEqual(Object.keys(steps[i].env).sort(), ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN']);
 });
+
+
+test('D1 credentials appear only on the exact migration and client-registration steps', () => {
+  const workflow = JSON.parse(readFileSync('.github/workflows/ci.yml', 'utf8'));
+  const databaseSecret = '${{ secrets.CLOUDFLARE_D1_API_TOKEN }}';
+  assert.doesNotMatch(JSON.stringify({ ...workflow, jobs: undefined }), /CLOUDFLARE_D1_API_TOKEN/);
+  for (const [name, job] of Object.entries(workflow.jobs)) {
+    assert.doesNotMatch(JSON.stringify({ ...job, steps: undefined }), /CLOUDFLARE_D1_API_TOKEN/);
+    const isDeploy = ['deploy-staging', 'deploy-production'].includes(name);
+    const environment = name === 'deploy-staging' ? 'staging' : 'production';
+    const flags = `--remote --config payload/wrangler.json${environment === 'staging' ? ' --env staging' : ''}`;
+    const prefix = 'ci/deploy-toolchain/node_modules/.bin/wrangler d1';
+    const commands = [
+      `${prefix} migrations apply IDENTITY ${flags}`,
+      `${prefix} execute IDENTITY ${flags} --file payload/clients/${environment}.sql`,
+    ];
+    const databaseSteps = job.steps.filter(step => commands.includes(step.run));
+    assert.equal(databaseSteps.length, isDeploy ? 2 : 0, name);
+    for (const step of job.steps) {
+      if (isDeploy && commands.includes(step.run)) {
+        assert.deepEqual(Object.keys(step).sort(), ['env', 'name', 'run']);
+        assert.deepEqual(step.env, {
+          CLOUDFLARE_API_TOKEN: databaseSecret,
+          CLOUDFLARE_ACCOUNT_ID: '${{ vars.CLOUDFLARE_ACCOUNT_ID }}',
+        });
+      } else {
+        assert.doesNotMatch(JSON.stringify(step), /CLOUDFLARE_D1_API_TOKEN/);
+        assert.doesNotMatch(step.run ?? '', /wrangler d1 /);
+      }
+    }
+  }
+});
