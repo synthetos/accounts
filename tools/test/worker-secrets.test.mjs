@@ -60,5 +60,6 @@ test('the staging-secrets workflow is manual, staging-only, and gives the token 
   const withToken = job.steps.filter((s) => JSON.stringify(s).includes('CLOUDFLARE_API_TOKEN'));
   assert.equal(withToken.length, 1);
   assert.equal(withToken[0].run, 'node tools/worker-secrets.mjs accounts-staging');
+  assert.equal(withToken[0].env.GITHUB_CLIENT_SECRET, '${{ secrets.APP_CLIENT_SECRET }}');
   assert.doesNotMatch(JSON.stringify(wf), /production/);
 });

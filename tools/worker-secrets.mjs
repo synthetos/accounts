@@ -5,7 +5,8 @@
 //   node tools/worker-secrets.mjs <script-name>
 //
 // Needs CLOUDFLARE_API_TOKEN (Workers Scripts Edit) and CLOUDFLARE_ACCOUNT_ID. Values given from outside (the GitHub
-// App client secret) come from the step's env under the secret's own name. Exit 0 all set, 1 a problem, 2 bad usage.
+// App client secret) come from the step's env under the secret's own name; GitHub refuses secret names starting
+// GITHUB_, so the workflow maps the environment secret APP_CLIENT_SECRET to GITHUB_CLIENT_SECRET. Exit 0 all set, 1 a problem, 2 bad usage.
 // Dependency-free (node: only).
 
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
@@ -55,7 +56,7 @@ export async function setMissingSecrets(script, env, fetchFn = fetch) {
     }
     const text = how.fromEnv ? (env[name] ?? '') : how.generate();
     if (text === '') {
-      problems.push(`${name} is missing: set it as a GitHub environment secret first`);
+      problems.push(`${name} is missing: set it as a GitHub environment secret first (APP_CLIENT_SECRET for GITHUB_CLIENT_SECRET)`);
       continue;
     }
     const put = await api(fetchFn, token, base, { method: 'PUT', body: JSON.stringify({ name, text, type: 'secret_text' }) });
