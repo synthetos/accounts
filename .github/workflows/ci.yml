@@ -115,7 +115,7 @@
         },
         {
           "name": "Install only TypeScript in each clean checkout",
-          "run": "pnpm --dir a/ci/build-toolchain install --frozen-lockfile --ignore-scripts\npnpm --dir b/ci/build-toolchain install --frozen-lockfile --ignore-scripts"
+          "run": "cd a/ci/build-toolchain && pnpm install --frozen-lockfile --ignore-scripts\ncd ../../../b/ci/build-toolchain && pnpm install --frozen-lockfile --ignore-scripts"
         },
         {
           "name": "Build first checkout",
