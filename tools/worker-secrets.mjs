@@ -27,6 +27,11 @@ export const PLANS = {
     GITHUB_WEBHOOK_SECRET: { generate: randomKey },
     ID_TOKEN_PRIVATE_JWK: { generate: signingJwk },
   },
+  // run's sign-in keys (run workers/run/src/authConfig.ts), each a canonical base64url 32-byte key.
+  'run-staging': {
+    RUN_STATE_KEY: { generate: randomKey },
+    RUN_RATE_KEY: { generate: randomKey },
+  },
 };
 
 async function api(fetchFn, token, url, init = {}) {

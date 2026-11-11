@@ -47,6 +47,13 @@ test('a missing outside value, an unknown Worker, missing credentials, and API r
   assert.ok(refused.problems.every((p) => !p.includes('client-secret')));
 });
 
+test('run-staging gets only its two generated sign-in keys', async () => {
+  const { fn, puts } = stub([]);
+  const r = await setMissingSecrets('run-staging', { CLOUDFLARE_API_TOKEN: 't', CLOUDFLARE_ACCOUNT_ID: 'acc' }, fn);
+  assert.deepEqual(r.set, ['RUN_STATE_KEY', 'RUN_RATE_KEY']);
+  assert.ok(puts.every((p) => p.url.endsWith('/workers/scripts/run-staging/secrets') && /^[A-Za-z0-9_-]{43}$/.test(p.text)));
+});
+
 test('the plan covers every secret the accounts Worker requires', () => {
   const app = ['app.ts', 'oidc.ts'].map((f) => readFileSync(`workers/accounts/src/${f}`, 'utf8')).join('\n');
   for (const name of Object.keys(PLANS['accounts-staging'])) assert.match(app, new RegExp(`env\\.${name}\\b`));
@@ -59,7 +66,10 @@ test('the staging-secrets workflow is manual, staging-only, and gives the token 
   assert.equal(job.environment, 'staging');
   const withToken = job.steps.filter((s) => JSON.stringify(s).includes('CLOUDFLARE_API_TOKEN'));
   assert.equal(withToken.length, 1);
-  assert.equal(withToken[0].run, 'node tools/worker-secrets.mjs accounts-staging');
+  assert.equal(withToken[0].run, 'node tools/worker-secrets.mjs "$WORKER"');
+  assert.equal(withToken[0].env.WORKER, '${{ inputs.worker }}');
+  assert.deepEqual(wf.on.workflow_dispatch.inputs.worker.options, Object.keys(PLANS));
+  assert.equal(wf.on.workflow_dispatch.inputs.worker.type, 'choice');
   assert.equal(withToken[0].env.GITHUB_CLIENT_SECRET, '${{ secrets.APP_CLIENT_SECRET }}');
   assert.doesNotMatch(JSON.stringify(wf), /production/);
 });
