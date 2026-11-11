@@ -22,7 +22,7 @@ test('unconfigured Worker exposes no login endpoint or cacheable authenticated c
 
 test('release configuration includes only compiled module rules and no custom build commands', () => {
   const config = JSON.parse(readFileSync('workers/accounts/wrangler.json', 'utf8'));
-  assert.equal(config.main, 'workers/accounts/src/index.js');
+  assert.equal(config.main, 'index.js');
   assert.equal(config.base_dir, '.');
   assert.equal(config.find_additional_modules, true);
   for (const scope of [config, ...Object.values(config.env ?? {})]) {
