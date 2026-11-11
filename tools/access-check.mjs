@@ -5,7 +5,8 @@
 //
 //   node tools/access-check.mjs --pre-deploy    before anything is migrated or deployed (a host that does not
 //                                              resolve yet passes the probe only after the API check passed)
-//   node tools/access-check.mjs --post-deploy   after the deploy; "unreachable" fails
+//   node tools/access-check.mjs --post-deploy   after the deploy; waits up to 6 minutes while the new custom domain
+//                                              is unreachable, then "unreachable" fails
 //
 // Needs CLOUDFLARE_API_TOKEN (with Access: Apps and Policies Read) and CLOUDFLARE_ACCOUNT_ID in the step's env.
 // Exit 0 pass, 1 a finding, 2 bad usage. Dependency-free (node: only).
@@ -117,12 +118,31 @@ export async function accessFindings(mode, env, fetchFn = fetch) {
   return findings;
 }
 
+/** True when every finding is only an unreachable host (a new custom domain's DNS and certificate are still coming up). */
+export function onlyUnreachable(findings) {
+  return findings.length > 0 && findings.every((f) => f.endsWith(' is unreachable'));
+}
+
+/**
+ * Post-deploy findings, waiting while the freshly attached custom domain is still unreachable. Any other finding
+ * (a public answer, an API finding) returns at once.
+ */
+export async function postDeployFindings(env, fetchFn = fetch, { attempts = 24, delayMs = 15_000, wait = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  let findings = [];
+  for (let i = 1; i <= attempts; i += 1) {
+    findings = await accessFindings('post', env, fetchFn);
+    if (!onlyUnreachable(findings)) return findings;
+    if (i < attempts) await wait(delayMs);
+  }
+  return findings;
+}
+
 async function main(argv) {
   if (argv.length !== 1 || (argv[0] !== '--pre-deploy' && argv[0] !== '--post-deploy')) {
     process.stderr.write('usage: node tools/access-check.mjs --pre-deploy|--post-deploy\n');
     return 2;
   }
-  const findings = await accessFindings(argv[0] === '--pre-deploy' ? 'pre' : 'post', process.env);
+  const findings = argv[0] === '--pre-deploy' ? await accessFindings('pre', process.env) : await postDeployFindings(process.env);
   if (findings.length > 0) {
     process.stderr.write(`access check (${STAGING_HOST}): FAILED\n`);
     for (const f of findings) process.stderr.write(`  ${f}\n`);

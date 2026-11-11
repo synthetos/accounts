@@ -95,7 +95,8 @@ test('the deploy jobs run the preflight before migrations, and register the clie
 });
 
 // Review S2: staging accounts is checked to be behind Cloudflare Access before and after the deploy, positively.
-import { accessFindings, checkAccessApplications, checkAccessGate, STAGING_HOST } from '../access-check.mjs';
+import { accessFindings, checkAccessApplications, checkAccessGate, onlyUnreachable, postDeployFindings, STAGING_HOST } from '../access-check.mjs';
+import { STAGING_SCRIPT, undoStaging } from '../undo-staging.mjs';
 
 const app = (over = {}) => ({ id: 'a1', type: 'self_hosted', domain: STAGING_HOST, policies: [{ name: 'owner', decision: 'allow', include: [{ email: { email: 'o@example.com' } }] }], ...over });
 
@@ -136,6 +137,43 @@ test('pre- and post-deploy end to end with a stubbed Cloudflare: missing credent
   assert.match((await accessFindings('post', env, stub([app()], 'down'))).join(), /unreachable/);
 });
 
+test('post-deploy waits while the new custom domain is unreachable, but a public answer fails at once', async () => {
+  const env = { CLOUDFLARE_API_TOKEN: 't', CLOUDFLARE_ACCOUNT_ID: 'acc' };
+  const api = () => Response.json({ success: true, result: [app()], result_info: { total_pages: 1 } });
+  const seq = (answers) => { let n = 0; const probes = []; return { probes, fn: async (url) => {
+    if (url.startsWith('https://api.cloudflare.com/')) return api();
+    const a = answers[Math.min(Math.floor(n++ / 2), answers.length - 1)];
+    probes.push(a);
+    if (a === 'down') throw new Error('unreachable');
+    return new Response(null, { status: a, headers: a === 302 ? { location: 'https://team.cloudflareaccess.com/login' } : {} });
+  } }; };
+  const waits = [];
+  const wait = async (ms) => { waits.push(ms); };
+  const comesUp = seq(['down', 'down', 302]);
+  assert.deepEqual(await postDeployFindings(env, comesUp.fn, { attempts: 5, delayMs: 7, wait }), []);
+  assert.deepEqual(waits, [7, 7]);
+  waits.length = 0;
+  assert.match((await postDeployFindings(env, seq(['down', 200]).fn, { attempts: 5, delayMs: 7, wait })).join(), /NOT behind/);
+  assert.deepEqual(waits, [7]);
+  waits.length = 0;
+  assert.match((await postDeployFindings(env, seq(['down']).fn, { attempts: 3, delayMs: 7, wait })).join(), /unreachable/);
+  assert.deepEqual(waits, [7, 7]);
+  assert.equal(onlyUnreachable([]), false);
+  assert.equal(onlyUnreachable(['x is unreachable', 'Cloudflare API 403: could not list Access applications']), false);
+});
+
+test('undo deletes only the accounts-staging Worker through the API; gone already is fine, a refusal fails', async () => {
+  const env = { CLOUDFLARE_API_TOKEN: 't', CLOUDFLARE_ACCOUNT_ID: 'acc' };
+  const calls = [];
+  const stub = (status, success) => async (url, init) => { calls.push([url, init.method]); return Response.json({ success }, { status }); };
+  assert.deepEqual(await undoStaging(env, stub(200, true)), []);
+  assert.deepEqual(calls[0], [`https://api.cloudflare.com/client/v4/accounts/acc/workers/scripts/${STAGING_SCRIPT}?force=true`, 'DELETE']);
+  assert.equal(STAGING_SCRIPT, 'accounts-staging');
+  assert.deepEqual(await undoStaging(env, stub(404, false)), []);
+  assert.match((await undoStaging(env, stub(403, false))).join(), /could not delete accounts-staging/);
+  assert.match((await undoStaging({}, stub(200, true))).join(), /CLOUDFLARE_API_TOKEN is not set/);
+});
+
 test('the staging deploy checks Access before anything else and after the deploy, and deletes staging if a later step fails', () => {
   const { jobs } = JSON.parse(readFileSync('.github/workflows/ci.yml', 'utf8'));
   const steps = jobs['deploy-staging'].steps;
@@ -144,7 +182,7 @@ test('the staging deploy checks Access before anything else and after the deploy
   const preflight = at('node tools/deploy-preflight.mjs');
   const deploy = at('wrangler deploy --no-bundle');
   const post = at('node tools/access-check.mjs --post-deploy');
-  const undo = at('wrangler delete --config payload/wrangler.json --env staging --force');
+  const undo = at('node tools/undo-staging.mjs');
   assert.ok(pre > 0 && pre < preflight && deploy < post && post < undo);
   assert.equal(steps[deploy].id, 'deploy');
   assert.equal(steps[undo].if, "failure() && steps.deploy.outcome == 'success'");
