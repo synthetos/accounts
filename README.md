@@ -163,8 +163,8 @@ The app-ID guard accepts `5562809` and explicitly refuses the forum app
 `5559540`; the configuration regression covers both. The owner holds the client
 secret, webhook secret and PKCS#8 private key; none belongs in a repository.
 The current user-authorization adapter uses the client secret, not the app's
-private key. A separate staging GitHub App still needs to be created, with its
-own credentials and callback. This registration record does not enable the
+private key. Staging uses the same Synthetos app (5562809) with an added staging callback
+(https://staging.accounts.synthetos.com/auth/github/callback), owner decision OD-37 in run. This registration record does not enable the
 Worker or establish that a live sign-in/webhook test has passed.
 
 ### Staff-beta admission and remaining setup
@@ -182,7 +182,7 @@ new sign-ins; use explicit session revocation to invalidate an existing session.
 Step-up/link remain bound to an already admitted account and cannot create users.
 
 A1-07's release configuration is in place (see "A1-07 release configuration" below); what
-remains is owner-only: the separate staging app, the D1 databases, the Worker secrets and staging
+remains is owner-only: the staging callback on the Synthetos app, the Worker secrets and staging
 Access protection. Scheduled retention for old login requests, rate
 buckets when there is no login traffic, revocation metadata and audit/session rows still needs implementation;
 webhook delivery cleanup occurs on webhook processing. Account management and
@@ -234,7 +234,7 @@ algorithm and claim checks described in [RFC 8725](https://www.rfc-editor.org/rf
 - the custom domain (`accounts.synthetos.com`, `staging.accounts.synthetos.com`);
 - the `IDENTITY` D1 database (`identity`, `identity-staging`), with a placeholder id until the owner creates it;
 - the non-secret variables `AUTH_ENABLED`, `ACCOUNT_ORIGIN`, `GITHUB_APP_ID`, `GITHUB_CLIENT_ID` and
-  `GITHUB_ALLOWED_IDS`. Staging's app id and client id are placeholders until the staging app exists.
+  `GITHUB_ALLOWED_IDS`. Staging uses the Synthetos app's id and client id (OD-37).
 
 The six secrets are set by the owner on each Worker, never in a file: `GITHUB_CLIENT_SECRET`,
 `OAUTH_STATE_KEY`, `FORM_KEY`, `RATE_KEY`, `GITHUB_WEBHOOK_SECRET` and `ID_TOKEN_PRIVATE_JWK`. Without

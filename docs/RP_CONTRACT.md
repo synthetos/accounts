@@ -205,9 +205,8 @@ app ID and refuses the forum app `5559540`. The owner retains the client secret,
 webhook secret and PKCS#8 app private key outside repositories; the current
 user-authorization adapter does not require that private key.
 
-A separate staging GitHub App is still pending. Use separate staging credentials
-and its configured callback; do not fill staging settings with the production
-registration. Cloudflare bindings/routes, owner-approved beta IDs and live
+Staging uses the Synthetos GitHub App (5562809) with its added staging callback and the same client
+credentials (owner decision OD-37 in run); the webhook and the other Worker secrets stay per environment. Cloudflare bindings/routes, owner-approved beta IDs and live
 sign-in/revocation verification remain A1-07 setup work. Recording this app does
 not enable authentication or authorize deployment.
 

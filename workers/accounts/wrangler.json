@@ -43,15 +43,15 @@
         {
           "binding": "IDENTITY",
           "database_name": "identity-staging",
-          "database_id": "IDENTITY_STAGING_DATABASE_ID_PLACEHOLDER",
+          "database_id": "3b93d493-bca2-4377-a4bc-3568822bd531",
           "migrations_dir": "migrations"
         }
       ],
       "vars": {
         "AUTH_ENABLED": "true",
         "ACCOUNT_ORIGIN": "https://staging.accounts.synthetos.com",
-        "GITHUB_APP_ID": "STAGING_GITHUB_APP_ID_PLACEHOLDER",
-        "GITHUB_CLIENT_ID": "STAGING_GITHUB_CLIENT_ID_PLACEHOLDER",
+        "GITHUB_APP_ID": "5562809",
+        "GITHUB_CLIENT_ID": "Iv23liIlkNxE7f3oEyX4",
         "GITHUB_ALLOWED_IDS": "[\"231731\"]"
       }
     }

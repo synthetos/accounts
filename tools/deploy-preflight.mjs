@@ -44,11 +44,10 @@ export function preflightFindings(config, env) {
   if (vars.ACCOUNT_ORIGIN !== `https://${HOSTS[env]}`) findings.push(`${where}vars.ACCOUNT_ORIGIN must be https://${HOSTS[env]}`);
   const appId = String(vars.GITHUB_APP_ID ?? '');
   if (!/^[1-9][0-9]*$/.test(appId) || appId === FORUM_APP_ID) findings.push(`${where}vars.GITHUB_APP_ID must be the sign-in app's numeric id (still the placeholder?)`);
-  if (env === 'staging' && appId === PRODUCTION_APP_ID) findings.push('env.staging.vars.GITHUB_APP_ID must be the separate staging app, never production\'s');
+  // OD-37 (owner, 2026-11-10): staging uses the Synthetos app too, with an added staging callback; no separate staging app.
   if (env === 'production' && appId !== PRODUCTION_APP_ID) findings.push(`vars.GITHUB_APP_ID must be the registered production app ${PRODUCTION_APP_ID}`);
   const clientId = String(vars.GITHUB_CLIENT_ID ?? '');
   if (!/^Iv[0-9A-Za-z.]{8,40}$/.test(clientId)) findings.push(`${where}vars.GITHUB_CLIENT_ID must be the sign-in app's client id (still the placeholder?)`);
-  if (env === 'staging' && clientId === config.vars?.GITHUB_CLIENT_ID) findings.push('env.staging.vars.GITHUB_CLIENT_ID must be the staging app\'s, never production\'s');
   let allowed = null;
   try {
     allowed = JSON.parse(String(vars.GITHUB_ALLOWED_IDS ?? ''));

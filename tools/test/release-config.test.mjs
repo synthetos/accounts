@@ -19,11 +19,8 @@ function filled() {
   return config;
 }
 
-test('the committed configuration is refused until the owner fills in what only the owner can create', () => {
-  const staging = preflightFindings(committed(), 'staging');
-  assert.ok(staging.some((f) => f.includes('identity-staging')), staging.join('\n'));
-  assert.ok(staging.some((f) => f.includes('GITHUB_APP_ID')));
-  assert.ok(staging.some((f) => f.includes('GITHUB_CLIENT_ID')));
+test('the committed configuration: staging is filled in (OD-37 shares the Synthetos app); production waits for its database', () => {
+  assert.deepEqual(preflightFindings(committed(), 'staging'), []);
   const production = preflightFindings(committed(), 'production');
   assert.deepEqual(production.map((f) => f.includes('database_id')), [true]);
 });
@@ -47,13 +44,13 @@ test('D37: the allowlist is the owner\'s numeric GitHub id only, and an empty or
   }
 });
 
-test('staging never reuses the production app; the forum app and a wrong host are refused', () => {
+test('staging may share the Synthetos app (OD-37); the forum app and a wrong host are refused', () => {
   const a = filled();
   a.env.staging.vars.GITHUB_APP_ID = '5562809';
   a.env.staging.vars.GITHUB_CLIENT_ID = a.vars.GITHUB_CLIENT_ID;
-  const findings = preflightFindings(a, 'staging');
-  assert.ok(findings.some((f) => f.includes('separate staging app')));
-  assert.ok(findings.some((f) => f.includes('client id') || f.includes('GITHUB_CLIENT_ID')));
+  assert.deepEqual(preflightFindings(a, 'staging'), []);
+  a.env.staging.vars.GITHUB_APP_ID = '5559540';
+  assert.ok(preflightFindings(a, 'staging').some((f) => f.includes('GITHUB_APP_ID')));
   const b = filled();
   b.vars.GITHUB_APP_ID = '5559540';
   assert.ok(preflightFindings(b, 'production').some((f) => f.includes('GITHUB_APP_ID')));
