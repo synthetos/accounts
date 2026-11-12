@@ -167,6 +167,12 @@ private key. Staging uses the same Synthetos app (5562809) with an added staging
 (https://staging.accounts.synthetos.com/auth/github/callback), owner decision OD-37 in run. This registration record does not enable the
 Worker or establish that a live sign-in/webhook test has passed.
 
+**Staging go-live (recorded 2026-11-12):** accounts-staging was deployed on 2026-11-11
+(https://github.com/synthetos/accounts/actions/runs/43122481858), and run-staging with sign-in on the same day
+(https://github.com/synthetos/run/actions/runs/43056342063). The owner ran run's go-live check
+(docs/ops/go-live-staging.md §5.3 "Check the whole sign-in", in run) on staging and it passed on 2026-11-12.
+Production accounts is not live yet (run's go-live §7).
+
 ### Staff-beta admission and remaining setup
 
 D37 admission is enforced at `Store.signIn` before any user, identity or session is
