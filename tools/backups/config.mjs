@@ -1,0 +1,2 @@
+export const REPO = 'accounts';
+export const DATABASES = [{ name: 'identity', staging: 'identity-staging', tables: ["users", "identities", "oauth_clients", "sessions", "auth_codes", "auth_requests", "deletion_jobs", "security_audit", "login_rate_limits", "webhook_deliveries", "provider_revocations", "authorization_requests", "management_requests", "introspection_rate_limits"], nonempty: ['oauth_clients'] }];

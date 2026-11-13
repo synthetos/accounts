@@ -1,0 +1,91 @@
+{
+  "name": "database-restore",
+  "on": {
+    "workflow_dispatch": {
+      "inputs": {
+        "mode": {
+          "type": "choice",
+          "options": [
+            "time-travel",
+            "sql"
+          ],
+          "required": true
+        },
+        "database": {
+          "type": "choice",
+          "options": [
+            "identity"
+          ],
+          "required": true
+        },
+        "confirm": {
+          "type": "string",
+          "description": "Type RESTORE identity",
+          "required": true
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Time Travel UTC YYYY-MM-DDTHH:MM:SSZ"
+        },
+        "key": {
+          "type": "string",
+          "description": "SQL archive key in synthetos-db-backups"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "jobs": {
+    "restore": {
+      "if": "github.ref == 'refs/heads/main'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 30,
+      "environment": "production",
+      "permissions": {
+        "contents": "read"
+      },
+      "concurrency": {
+        "group": "accounts-database-backups",
+        "cancel-in-progress": false
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "uses": "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+          "with": {
+            "node-version": "22.22.0",
+            "package-manager-cache": false
+          }
+        },
+        {
+          "run": "corepack enable"
+        },
+        {
+          "run": "pnpm --dir ci/deploy-toolchain install --frozen-lockfile --ignore-scripts"
+        },
+        {
+          "name": "Owner-approved production restore",
+          "run": "node tools/backups/restore-cli.mjs",
+          "env": {
+            "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}",
+            "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
+            "CLOUDFLARE_D1_API_TOKEN": "${{ secrets.CLOUDFLARE_D1_API_TOKEN }}",
+            "BACKUP_ENV": "production",
+            "RESTORE_MODE": "${{ inputs.mode }}",
+            "RESTORE_DATABASE": "${{ inputs.database }}",
+            "RESTORE_CONFIRM": "${{ inputs.confirm }}",
+            "RESTORE_TIMESTAMP": "${{ inputs.timestamp }}",
+            "RESTORE_KEY": "${{ inputs.key }}"
+          }
+        }
+      ]
+    }
+  }
+}
