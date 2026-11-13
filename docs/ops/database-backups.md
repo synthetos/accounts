@@ -120,32 +120,33 @@ and deployment path to update bindings and redeploy. Do not reopen traffic while
 bindings still point at the lost ID. Check sign-in and application behavior after
 either recovery path. Production restoration is never scheduled automatically.
 
-## NAS cold storage (run repository script)
+## Zeus cold storage
 
-Install `tools/backups/nas-pull.sh` from run on the Unraid NAS. Install rclone via
-the Unraid plugin, or provide a local `rclone` wrapper invoking a pinned container
-with the config and destination paths mounted at the same paths. Also provide
-`sha256sum`, POSIX sh, awk and find. Schedule the script after nightly backups:
+The installed script is committed verbatim in run at
+`tools/backups/zeus-db-pull.sh`. Zeus (`192.168.1.221`) pulls nightly at **03:30
+America/New_York** into `/mnt/storage/coldstorage/synthetos-db/`, preserving bucket
+paths and skipping `staging/`. It never deletes or overwrites cold copies.
+The log is `/mnt/storage/coldstorage/synthetos-db/pull.log`; rclone errors go to
+`rclone-errors.log` beside it. No installation or schedule changes are needed.
 
-```sh
-sh /boot/config/custom/nas-pull.sh /boot/config/custom/synthetos-backups-rclone.conf
-```
+The owner creates an R2 API token with **Object Read only**, **Apply to specific
+buckets only**, selecting only `synthetos-db-backups`. Write its credentials as an
+rclone config on zeus at `~/.config/synthetos-db-backups/rclone.conf` with remote
+name **r2**, type `s3`, provider **Cloudflare**, region `auto`, and the endpoint from
+R2. Keep the config private (mode 600); never commit or print its keys. This is an
+S3 credential, not the CI Cloudflare REST token. See
+[R2 token permissions](https://developers.cloudflare.com/r2/api/tokens/).
 
-The owner creates one R2 API token: **Object Read only**, **Apply to specific
-buckets only**, selecting only `synthetos-db-backups`. This is an S3 credential,
-not a Cloudflare REST API token. We never create keys. Put its Access Key ID and
-Secret Access Key in the private rclone config on the NAS (mode 600, directory
-accessible only to the owner), remote name `synthetos-backups`, type `s3`, provider
-`Cloudflare`, region `auto`, endpoint copied from the R2 token page. Do not put the
-config in git, shell history, logs or this runbook. See [R2 token permissions](https://developers.cloudflare.com/r2/api/tokens/).
+Until that config exists, the installed script logs “not configured” and exits
+successfully. Once configured, it copies new objects, verifies each new archive
+and records verified paths in `.verified`. Already verified files are retained
+without rechecking on every pull. An overlapping pull is skipped under a lock.
+Missing checksums or mismatches fail the pull; monitor its exit status and log.
 
-The script copies only `accounts/` and `run/` to
-`/mnt/user/mybackups/synthetos-db/`, preserving paths. It verifies every archive
-against its sidecar, rejects malformed or missing pairs, and appends one timestamp
-and OK/FAILED line to `pull.log`. It never syncs, deletes or overwrites NAS archives.
-If R2 expires an object, the NAS copy remains indefinitely. A failure exits nonzero;
-alert on that status in the NAS scheduler. An interrupted two-object upload can
-cause a missing-pair failure; rerun after the CI upload finishes. A checksum mismatch
-requires investigation, not automatic replacement of the old cold-storage copy.
-Minute-granularity archive keys mean dispatches within the same minute must be
-refused rather than overwriting an archive; wait for the prior job to finish and the minute to change before rerunning.
+Backups write each checksum as `<hex>  <file name>` (two spaces, terminating
+newline) in `<file>.sql.gz.sha256` next to `<file>.sql.gz`, matching the installed
+script. Bucket name and staging prefix remain unchanged. R2 expiry never deletes
+the cold copy. An interrupted two-object upload may need a later pull once its
+checksum arrives; investigate mismatches rather than replacing a cold copy.
+Minute-granularity archive keys refuse same-minute retries rather than overwriting
+an earlier archive; wait for the prior job to finish and the minute to change.
