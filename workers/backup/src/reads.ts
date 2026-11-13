@@ -1,6 +1,6 @@
 import type { Database, Result } from './types.ts';
 import { quoteIdentifier as ident } from './format.ts';
-export const SCHEMA = "SELECT type,name,tbl_name,sql FROM sqlite_master WHERE type IN ('table','index','trigger') AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_cf_*' AND name NOT IN ('d1_migrations','_d1_migrations') AND sql IS NOT NULL ORDER BY type,name";
+export const SCHEMA = "SELECT type,name,tbl_name,sql FROM sqlite_master WHERE type IN ('table','index','trigger') AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_cf_*' AND sql IS NOT NULL ORDER BY type,name";
 export function rows(result: Result): Record<string, unknown>[] {
   if (!result.success || !Array.isArray(result.results)) throw new Error('D1 read failed');
   return result.results;

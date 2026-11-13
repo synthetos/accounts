@@ -158,12 +158,9 @@ The manual checked-in workflow executes `node tools/backups/restore-cli.mjs`. In
 
 A failed production import can leave partial data. Keep writes stopped and retry
 only after assessing the failure; the source archive and safety backup remain.
-The Worker dump excludes Wrangler's `d1_migrations` ledger along with D1 system
-tables. Before running the usual migration/deploy workflow after a SQL restore,
-reconcile that ledger in an owner-reviewed CI recovery change against the restored
-schema and the archive's date. Do not blindly replay old CREATE TABLE migrations
-against restored tables. Time Travel preserves the ledger and avoids this extra
-incident step.
+The Worker dump includes and restores `d1_migrations`, preserving the migration
+ledger. The normal CI migration step therefore applies only newer migrations after
+a restore. Only `sqlite_*` and `_cf_*` system objects are excluded.
 
 If the database was recreated, its ID changed: run the existing CI provisioning
 and deployment path to update bindings and redeploy. Do not reopen traffic while
