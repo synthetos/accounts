@@ -74,19 +74,30 @@ test('the staging-secrets workflow is manual, staging-only, and gives the token 
   assert.doesNotMatch(JSON.stringify(wf), /production/);
 });
 
-test('production uses only supplied production values, keeps existing secrets, and never generates a fallback', async () => {
+test('production mirrors staging generation with fresh independent keys and preserves existing production secrets', async () => {
   for (const script of ['accounts', 'run']) {
-    const values = Object.fromEntries(Object.keys(PLANS[script]).map(name => [name, `production-${name}`]));
-    const { fn, puts } = stub([]);
-    const result = await setMissingSecrets(script, { ...env, ...values }, fn);
+    assert.equal(PLANS[script], PLANS[`${script}-staging`]);
+    const production = stub([]), staging = stub([]);
+    const productionEnv = { ...env, GITHUB_CLIENT_SECRET: 'production-client-secret' };
+    const result = await setMissingSecrets(script, productionEnv, production.fn);
+    await setMissingSecrets(`${script}-staging`, env, staging.fn);
     assert.deepEqual(result.problems, []);
-    assert.equal(puts.length, Object.keys(values).length);
-    for (const put of puts) { assert.equal(put.text, values[put.name]); assert.ok(put.url.endsWith(`/workers/scripts/${script}/secrets`)); }
+    assert.equal(production.puts.length, Object.keys(PLANS[script]).length);
+    for (const put of production.puts) {
+      assert.ok(put.url.endsWith(`/workers/scripts/${script}/secrets`));
+      assert.notEqual(put.text, staging.puts.find(p => p.name === put.name).text);
+      if (put.name === 'GITHUB_CLIENT_SECRET') assert.equal(put.text, 'production-client-secret');
+      else if (put.name === 'ID_TOKEN_PRIVATE_JWK') assert.equal(JSON.parse(put.text).crv, 'P-256');
+      else assert.match(put.text, /^[A-Za-z0-9_-]{43}$/);
+      assert.ok(!JSON.stringify(result).includes(put.text));
+    }
+    const kept = stub(Object.keys(PLANS[script]));
+    const rerun = await setMissingSecrets(script, { CLOUDFLARE_API_TOKEN: 't', CLOUDFLARE_ACCOUNT_ID: 'acc' }, kept.fn);
+    assert.deepEqual(rerun.problems, []); assert.equal(kept.puts.length, 0);
     const missing = stub([]);
-    const refused = await setMissingSecrets(script, { CLOUDFLARE_API_TOKEN: 't', CLOUDFLARE_ACCOUNT_ID: 'acc' }, missing.fn);
-    assert.equal(refused.problems.length, Object.keys(values).length); assert.equal(missing.puts.length, 0);
-    const kept = stub(Object.keys(values));
-    assert.deepEqual((await setMissingSecrets(script, env, kept.fn)).problems, []); assert.equal(kept.puts.length, 0);
+    const noClient = await setMissingSecrets(script, { CLOUDFLARE_API_TOKEN: 't', CLOUDFLARE_ACCOUNT_ID: 'acc' }, missing.fn);
+    assert.equal(noClient.problems.length, script === 'accounts' ? 1 : 0);
+    assert.equal(missing.puts.length, script === 'accounts' ? 5 : 2);
   }
 });
 test('production-secrets is manual, main-only, production protected, with scoped environment secrets and no output of values', () => {
@@ -102,8 +113,8 @@ test('production-secrets is manual, main-only, production protected, with scoped
     const step = job.steps[index + 2];
     assert.equal(step.if, `inputs.worker == '${script}'`);
     assert.equal(step.run, 'node tools/worker-secrets.mjs "$WORKER"');
-    assert.deepEqual(Object.keys(step.env).sort(), ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'WORKER', ...Object.keys(PLANS[script])].sort());
-    for (const key of Object.keys(PLANS[script])) assert.match(step.env[key], /^\$\{\{ secrets\.[A-Z_]+ \}\}$/);
+    assert.deepEqual(Object.keys(step.env).sort(), ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'WORKER', ...(script === 'accounts' ? ['GITHUB_CLIENT_SECRET'] : [])].sort());
+    if (script === 'accounts') assert.equal(step.env.GITHUB_CLIENT_SECRET, '${{ secrets.APP_CLIENT_SECRET }}');
   }
   assert.doesNotMatch(JSON.stringify(wf), /staging|echo|printenv/);
 });

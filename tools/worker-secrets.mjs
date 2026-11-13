@@ -17,24 +17,24 @@ export const randomKey = () => randomBytes(32).toString('base64url');
 /** A fresh P-256 private key as a JWK string, for signing ID tokens. */
 export const signingJwk = () => JSON.stringify(generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ format: 'jwk' }));
 
-/** Staging generates missing keys; production takes every value from its protected environment. */
+/** Both environments use the same plan, but each missing value is generated anew on this runner. */
+const ACCOUNTS_PLAN = {
+  GITHUB_CLIENT_SECRET: { fromEnv: true },
+  OAUTH_STATE_KEY: { generate: randomKey },
+  FORM_KEY: { generate: randomKey },
+  RATE_KEY: { generate: randomKey },
+  GITHUB_WEBHOOK_SECRET: { generate: randomKey },
+  ID_TOKEN_PRIVATE_JWK: { generate: signingJwk },
+};
+const RUN_PLAN = {
+  RUN_STATE_KEY: { generate: randomKey },
+  RUN_RATE_KEY: { generate: randomKey },
+};
 export const PLANS = {
-  // Production values come only from the protected production environment, never staging or a fallback.
-  accounts: Object.fromEntries(['GITHUB_CLIENT_SECRET', 'OAUTH_STATE_KEY', 'FORM_KEY', 'RATE_KEY', 'GITHUB_WEBHOOK_SECRET', 'ID_TOKEN_PRIVATE_JWK'].map(name => [name, { fromEnv: true }])),
-  run: Object.fromEntries(['RUN_STATE_KEY', 'RUN_RATE_KEY'].map(name => [name, { fromEnv: true }])),
-  'accounts-staging': {
-    GITHUB_CLIENT_SECRET: { fromEnv: true },
-    OAUTH_STATE_KEY: { generate: randomKey },
-    FORM_KEY: { generate: randomKey },
-    RATE_KEY: { generate: randomKey },
-    GITHUB_WEBHOOK_SECRET: { generate: randomKey },
-    ID_TOKEN_PRIVATE_JWK: { generate: signingJwk },
-  },
-  // run's sign-in keys (run workers/run/src/authConfig.ts), each a canonical base64url 32-byte key.
-  'run-staging': {
-    RUN_STATE_KEY: { generate: randomKey },
-    RUN_RATE_KEY: { generate: randomKey },
-  },
+  accounts: ACCOUNTS_PLAN,
+  run: RUN_PLAN,
+  'accounts-staging': ACCOUNTS_PLAN,
+  'run-staging': RUN_PLAN,
 };
 
 async function api(fetchFn, token, url, init = {}) {
