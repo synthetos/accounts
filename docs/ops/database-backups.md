@@ -18,6 +18,14 @@ have only a cron handler and a fetch handler returning 404.
 | accounts | accounts-backup / accounts-backup-staging | identity / identity-staging | 07:45 production / 07:30 staging daily |
 | run | run-backup / run-backup-staging | run-auth / run-auth-staging | 07:50 production / 07:35 staging daily |
 
+Backup provisioning runs after the site's post-deploy check where one exists. If
+all source databases for the environment are absent, it prints “Backups not deployed
+yet” in the log and job summary, publishes `ready=false`, and skips the backup Worker
+deploy. No bucket or scratch resources are created in that case. With no D1 token,
+the existing API token must be able to list D1 databases to establish absence;
+a failed lookup is not treated as absence. Once any source exists, the D1 credential
+is required and missing sources or bucket/permission failures remain errors.
+
 The source databases are read-only **by code**, using SELECT (including schema
 metadata queries). D1 bindings themselves do not enforce read-only access. Scratch
 restores receive only the separate SCRATCH binding. Source and scratch IDs must

@@ -216,7 +216,7 @@ test('D1 credentials appear only on exact migration, client-registration and bac
           CLOUDFLARE_ACCOUNT_ID: '${{ vars.CLOUDFLARE_ACCOUNT_ID }}',
         });
       } else if (isDeploy && step.run === `node tools/backups/provision-worker.mjs ${environment}`) {
-        assert.deepEqual(step, { name: 'Provision private backup resources', run: `node tools/backups/provision-worker.mjs ${environment}`, env: {
+        assert.deepEqual(step, { name: 'Provision private backup resources', id: 'backups', run: `node tools/backups/provision-worker.mjs ${environment}`, env: {
           CLOUDFLARE_ACCOUNT_ID: '${{ vars.CLOUDFLARE_ACCOUNT_ID }}',
           CLOUDFLARE_D1_API_TOKEN: databaseSecret,
           CLOUDFLARE_API_TOKEN: '${{ secrets.CLOUDFLARE_API_TOKEN }}',

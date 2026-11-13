@@ -311,7 +311,8 @@
             "CLOUDFLARE_D1_API_TOKEN": "${{ secrets.CLOUDFLARE_D1_API_TOKEN }}",
             "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}"
           },
-          "run": "node tools/backups/provision-worker.mjs staging"
+          "run": "node tools/backups/provision-worker.mjs staging",
+          "id": "backups"
         },
         {
           "name": "Deploy attested private backup Worker",
@@ -319,7 +320,8 @@
             "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}",
             "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}"
           },
-          "run": "ci/deploy-toolchain/node_modules/.bin/wrangler deploy --no-bundle --config payload/backup-wrangler.json"
+          "run": "ci/deploy-toolchain/node_modules/.bin/wrangler deploy --no-bundle --config payload/backup-wrangler.json",
+          "if": "steps.backups.outputs.ready == 'true'"
         }
       ],
       "needs": [
@@ -417,7 +419,8 @@
             "CLOUDFLARE_D1_API_TOKEN": "${{ secrets.CLOUDFLARE_D1_API_TOKEN }}",
             "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}"
           },
-          "run": "node tools/backups/provision-worker.mjs production"
+          "run": "node tools/backups/provision-worker.mjs production",
+          "id": "backups"
         },
         {
           "name": "Deploy attested private backup Worker",
@@ -425,7 +428,8 @@
             "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}",
             "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}"
           },
-          "run": "ci/deploy-toolchain/node_modules/.bin/wrangler deploy --no-bundle --config payload/backup-wrangler.json"
+          "run": "ci/deploy-toolchain/node_modules/.bin/wrangler deploy --no-bundle --config payload/backup-wrangler.json",
+          "if": "steps.backups.outputs.ready == 'true'"
         }
       ],
       "needs": [

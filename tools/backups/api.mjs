@@ -17,7 +17,7 @@ export function cloudflare(account, token, permission, fetcher = fetch) {
     return answer;
   };
 }
-export async function databaseId(api, name, create = false) {
+export async function databaseId(api, name, create = false, allowAbsent = false) {
   if (!/^[a-z][a-z0-9-]+$/.test(name)) throw new Error('Invalid database name');
   let id;
   for (let page = 1; page <= 10000; page++) {
@@ -31,6 +31,7 @@ export async function databaseId(api, name, create = false) {
     if (!Number.isInteger(pages) || pages < 1 || pages > 10000) throw new Error('Invalid D1 pagination');
     if (page >= pages) break;
   }
+  if (id === undefined && !create && allowAbsent) return null;
   if (id === undefined && create) id = (await api('d1/database', 'POST', { name })).result?.uuid;
   if (typeof id !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id)) throw new Error(`Database ${name} is missing or invalid`);
   return id;

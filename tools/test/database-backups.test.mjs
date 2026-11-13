@@ -33,6 +33,9 @@ test('backup deploy uses the normal protected attested jobs, never scheduled Git
     const provision = job.steps.findIndex(s => s.run === `node tools/backups/provision-worker.mjs ${environment}`);
     const deploy = job.steps.findIndex(s => s.run === 'ci/deploy-toolchain/node_modules/.bin/wrangler deploy --no-bundle --config payload/backup-wrangler.json');
     assert.ok(provision > job.steps.findIndex(s => s.name === 'Extract verified artifact'));
+    assert.equal(job.steps[provision].id, 'backups');
+    assert.equal(job.steps[deploy].if, "steps.backups.outputs.ready == 'true'");
+    if (environment === 'staging') assert.ok(provision > job.steps.findIndex(s => s.run === 'node tools/access-check.mjs --post-deploy'));
     assert.equal(deploy, provision + 1); assert.equal(job.environment, environment);
     assert.ok(job.needs.includes('attest')); assert.match(job.if, /refs\/heads\/main/);
   }
