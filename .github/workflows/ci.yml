@@ -293,11 +293,12 @@
             "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
             "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
           },
-          "run": "node tools/access-check.mjs --post-deploy"
+          "run": "node tools/access-check.mjs --post-deploy",
+          "id": "site_smoke"
         },
         {
-          "name": "Undo: delete staging when a step after the deploy failed",
-          "if": "failure() && steps.deploy.outcome == 'success'",
+          "name": "Undo: delete staging when site deploy or Access check failed",
+          "if": "failure() && (steps.deploy.outcome == 'failure' || steps.site_smoke.outcome == 'failure')",
           "env": {
             "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
             "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
@@ -321,7 +322,13 @@
             "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}"
           },
           "run": "ci/deploy-toolchain/node_modules/.bin/wrangler deploy --no-bundle --config payload/backup-wrangler.json",
-          "if": "steps.backups.outputs.ready == 'true'"
+          "if": "steps.backups.outputs.ready == 'true'",
+          "id": "backup_deploy"
+        },
+        {
+          "name": "Report backup failure without undoing the site",
+          "if": "failure() && (steps.backups.outcome == 'failure' || steps.backup_deploy.outcome == 'failure')",
+          "run": "echo 'Backups failed; the site deploy is unaffected.' >> \"$GITHUB_STEP_SUMMARY\""
         }
       ],
       "needs": [
@@ -429,7 +436,13 @@
             "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}"
           },
           "run": "ci/deploy-toolchain/node_modules/.bin/wrangler deploy --no-bundle --config payload/backup-wrangler.json",
-          "if": "steps.backups.outputs.ready == 'true'"
+          "if": "steps.backups.outputs.ready == 'true'",
+          "id": "backup_deploy"
+        },
+        {
+          "name": "Report backup failure without undoing the site",
+          "if": "failure() && (steps.backups.outcome == 'failure' || steps.backup_deploy.outcome == 'failure')",
+          "run": "echo 'Backups failed; the site deploy is unaffected.' >> \"$GITHUB_STEP_SUMMARY\""
         }
       ],
       "needs": [

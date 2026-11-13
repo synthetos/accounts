@@ -176,7 +176,7 @@ test('undo deletes only the accounts-staging Worker through the API; gone alread
   assert.match((await undoStaging({}, stub(200, true))).join(), /CLOUDFLARE_API_TOKEN is not set/);
 });
 
-test('the staging deploy checks Access before anything else and after the deploy, and deletes staging if a later step fails', () => {
+test('the staging deploy checks Access before anything else and after the deploy, and deletes staging only if the site deploy or Access check fails', () => {
   const { jobs } = JSON.parse(readFileSync('.github/workflows/ci.yml', 'utf8'));
   const steps = jobs['deploy-staging'].steps;
   const at = (needle) => steps.findIndex((s) => (s.run ?? '').includes(needle));
@@ -187,7 +187,8 @@ test('the staging deploy checks Access before anything else and after the deploy
   const undo = at('node tools/undo-staging.mjs');
   assert.ok(pre > 0 && pre < preflight && deploy < post && post < undo);
   assert.equal(steps[deploy].id, 'deploy');
-  assert.equal(steps[undo].if, "failure() && steps.deploy.outcome == 'success'");
+  assert.equal(steps[post].id, 'site_smoke');
+  assert.equal(steps[undo].if, "failure() && (steps.deploy.outcome == 'failure' || steps.site_smoke.outcome == 'failure')");
   for (const i of [pre, post, undo]) assert.deepEqual(Object.keys(steps[i].env).sort(), ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN']);
 });
 
@@ -226,5 +227,19 @@ test('D1 credentials appear only on exact migration, client-registration and bac
         assert.doesNotMatch(step.run ?? '', /wrangler d1 /);
       }
     }
+  }
+});
+
+test('backup failures never trigger site undo and retain their own failed-job summary', () => {
+  const { jobs } = JSON.parse(readFileSync('.github/workflows/ci.yml', 'utf8'));
+  const undo = jobs['deploy-staging'].steps.find(s => s.run === 'node tools/undo-staging.mjs');
+  const watched = [...undo.if.matchAll(/steps\.(\w+)\.outcome == 'failure'/g)].map(m => m[1]);
+  for (const failed of ['deploy', 'site_smoke', 'backups', 'backup_deploy']) assert.equal(watched.includes(failed), failed === 'deploy' || failed === 'site_smoke');
+  for (const environment of ['staging', 'production']) {
+    const steps = jobs[`deploy-${environment}`].steps;
+    assert.equal(steps.find(s => s.name === 'Deploy attested private backup Worker').id, 'backup_deploy');
+    const report = steps.find(s => s.name === 'Report backup failure without undoing the site');
+    assert.equal(report.if, "failure() && (steps.backups.outcome == 'failure' || steps.backup_deploy.outcome == 'failure')");
+    assert.equal(report.run, `echo 'Backups failed; the site deploy is unaffected.' >> "$GITHUB_STEP_SUMMARY"`);
   }
 });
