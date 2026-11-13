@@ -1,3 +1,4 @@
+import { splitSql } from '../../workers/backup/src/sql.ts';
 // Only the pinned deploy toolchain runs with credentials. No child output is forwarded: SQL may be in errors.
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -34,6 +35,7 @@ export function remote({ api, account, d1Token, r2Token, directory, runner = exe
       return readFile(path);
     },
     import: async (database, sql) => {
+      splitSql(sql.toString('utf8')); // Same parser as the scheduled scratch restore.
       const path = join(directory, 'import.sql');
       await writeFile(path, sql, { mode: 0o600 });
       await command(['d1', 'execute', 'BACKUP_DB', '--remote', '--yes', '--file', path], d1Token, database);

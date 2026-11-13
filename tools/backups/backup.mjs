@@ -1,3 +1,4 @@
+import { checksumText } from '../../workers/backup/src/format.ts';
 import { basename } from 'node:path';
 import { archiveKey, pack, unpack, expectedCounts, checkRestored, quoteIdentifier } from './archive.mjs';
 export const TABLES_SQL = "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_cf_*'";
@@ -38,7 +39,7 @@ export async function backupDatabase(io, { repo, environment, schema, now, month
   // Jobs share a per-repo concurrency group; never replace an earlier minute's archive.
   if (await io.exists(key) || await io.exists(`${key}.sha256`)) throw new Error('Backup key already exists; retry in a later minute');
   await io.put(key, bytes);
-  await io.put(`${key}.sha256`, Buffer.from(`${hash}  ${basename(key)}\n`));
+  await io.put(`${key}.sha256`, Buffer.from(checksumText(hash, key)));
   const downloaded = await downloadVerified(io, key);
   // The remote object and its checksum cannot both be replaced without detection.
   if (!downloaded.equals(sql)) throw new Error('Uploaded backup differs from the export');

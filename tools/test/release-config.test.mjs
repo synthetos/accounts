@@ -192,7 +192,7 @@ test('the staging deploy checks Access before anything else and after the deploy
 });
 
 
-test('D1 credentials appear only on the exact migration and client-registration steps', () => {
+test('D1 credentials appear only on exact migration, client-registration and backup-provision steps', () => {
   const workflow = JSON.parse(readFileSync('.github/workflows/ci.yml', 'utf8'));
   const databaseSecret = '${{ secrets.CLOUDFLARE_D1_API_TOKEN }}';
   assert.doesNotMatch(JSON.stringify({ ...workflow, jobs: undefined }), /CLOUDFLARE_D1_API_TOKEN/);
@@ -215,6 +215,12 @@ test('D1 credentials appear only on the exact migration and client-registration 
           CLOUDFLARE_API_TOKEN: databaseSecret,
           CLOUDFLARE_ACCOUNT_ID: '${{ vars.CLOUDFLARE_ACCOUNT_ID }}',
         });
+      } else if (isDeploy && step.run === `node tools/backups/provision-worker.mjs ${environment}`) {
+        assert.deepEqual(step, { name: 'Provision private backup resources', run: `node tools/backups/provision-worker.mjs ${environment}`, env: {
+          CLOUDFLARE_ACCOUNT_ID: '${{ vars.CLOUDFLARE_ACCOUNT_ID }}',
+          CLOUDFLARE_D1_API_TOKEN: databaseSecret,
+          CLOUDFLARE_API_TOKEN: '${{ secrets.CLOUDFLARE_API_TOKEN }}',
+        } });
       } else {
         assert.doesNotMatch(JSON.stringify(step), /CLOUDFLARE_D1_API_TOKEN/);
         assert.doesNotMatch(step.run ?? '', /wrangler d1 /);

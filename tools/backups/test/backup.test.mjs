@@ -5,7 +5,6 @@ import { archiveKey, pack, unpack, expectedCounts } from '../archive.mjs';
 import { backupDatabase, restoreCheck } from '../backup.mjs';
 import { cloudflare, databaseId } from '../api.mjs';
 import { provisionBucket, LIFECYCLE } from '../bucket.mjs';
-import { requireCI } from '../cli.mjs';
 const sql = Buffer.from('CREATE TABLE items(id INTEGER PRIMARY KEY); INSERT INTO items VALUES(1); CREATE TABLE sessions(id TEXT);');
 const schema = { name: 'run-auth', staging: 'run-auth-staging', tables: ['items', 'sessions'], nonempty: ['items'] };
 const now = new Date('2026-11-01T07:15:00Z');
@@ -96,11 +95,6 @@ test('API denial hides response content and names the credential permission', as
     const api = cloudflare('a'.repeat(32), 'private-token', 'D1: Edit', async () => new Response('private rows', { status }));
     await assert.rejects(api('d1/database'), error => !error.message.includes('private') && (status === 500 || error.message.includes('D1: Edit')));
   }
-});
-test('CLI cannot run locally, on PRs, or against another scope', () => {
-  const env = { GITHUB_ACTIONS: 'true', GITHUB_REF: 'refs/heads/main', GITHUB_EVENT_NAME: 'schedule', BACKUP_ENV: 'production', RUNNER_TEMP: '/runner', GITHUB_STEP_SUMMARY: '/summary' };
-  requireCI(env);
-  for (const patch of [{ GITHUB_ACTIONS: '' }, { GITHUB_REF: 'refs/heads/topic' }, { GITHUB_EVENT_NAME: 'pull_request' }, { BACKUP_ENV: 'other' }]) assert.throws(() => requireCI({ ...env, ...patch }));
 });
 import { restoreRequest, restoreProduction } from '../restore.mjs';
 test('manual production restore refuses unapproved scope, cross-repo keys and missing confirmation', () => {

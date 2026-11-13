@@ -11,3 +11,7 @@
 /.dependency-cruiser.cjs @ril3y
 /eslint.config.js @ril3y
 /stryker.config.json @ril3y
+
+# Private scheduled database backups and their protected recovery/provisioning paths.
+/workers/backup/                   @ril3y
+/tools/backups/                    @ril3y
