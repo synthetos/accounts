@@ -11,9 +11,9 @@ export function workerConfig(environment, source, scratch, account) {
   return {
     name: `${REPO}-backup${suffix}`, main: REPO === 'run' ? 'index.mjs' : 'workers/backup/src/index.js', compatibility_date: '2026-10-01',
     ...(account === undefined ? {} : { account_id: account }), workers_dev: false, preview_urls: false, routes: [],
-    observability: { enabled: true, head_sampling_rate: 1 }, triggers: { crons: [REPO === 'accounts' ? '45 7 * * *' : '50 7 * * *'] },
+    observability: { enabled: true, head_sampling_rate: 1 }, triggers: { crons: [`${(REPO === 'accounts' ? 45 : 50) - (environment === 'staging' ? 15 : 0)} 7 * * *`] },
     vars: { BACKUP_ENV: environment },
-    d1_databases: [...SOURCES.map(s => ({ binding: s.binding, database_name: s.database + suffix, database_id: sourceIds[s.binding] })), { binding: 'SCRATCH', database_name: `restore-test-${REPO}`, database_id: scratch }],
+    d1_databases: [...SOURCES.map(s => ({ binding: s.binding, database_name: s.database + suffix, database_id: sourceIds[s.binding] })), { binding: 'SCRATCH', database_name: `restore-test-${REPO}${suffix}`, database_id: scratch }],
     r2_buckets: [{ binding: 'BACKUPS', bucket_name: 'synthetos-db-backups' }],
     find_additional_modules: true, rules: [{ type: 'ESModule', globs: [REPO === 'run' ? '**/*.mjs' : '**/*.js'] }],
   };

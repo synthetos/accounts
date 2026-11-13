@@ -15,8 +15,8 @@ have only a cron handler and a fetch handler returning 404.
 
 | Repo | Production / staging Worker | Source D1 | UTC cron |
 | --- | --- | --- | --- |
-| accounts | accounts-backup / accounts-backup-staging | identity / identity-staging | 07:45 daily |
-| run | run-backup / run-backup-staging | run-auth / run-auth-staging | 07:50 daily |
+| accounts | accounts-backup / accounts-backup-staging | identity / identity-staging | 07:45 production / 07:30 staging daily |
+| run | run-backup / run-backup-staging | run-auth / run-auth-staging | 07:50 production / 07:35 staging daily |
 
 The source databases are read-only **by code**, using SELECT (including schema
 metadata queries). D1 bindings themselves do not enforce read-only access. Scratch
@@ -78,11 +78,12 @@ and [query-result limit](https://developers.cloudflare.com/changelog/post/2026-1
 ## Monthly recovery proof and failure visibility
 
 On UTC day 1 the cron restores the newest archive it just wrote and verified into
-its bound scratch database (`restore-test-accounts` or `restore-test-run`). Import,
+its own environment’s scratch database: production uses `restore-test-<repo>` and
+staging uses `restore-test-<repo>-staging`. Each Worker binds only its own scratch. Import,
 verification SELECTs and table removal execute in one D1 batch transaction. The
-returned counts are compared with the dump afterward. This keeps concurrent staging
-and production restores from seeing or clearing a partial restore; both can safely
-use the brief's shared scratch database. Empty application tables are preserved and valid. The same SQL
+returned counts are compared with the dump afterward. Staging runs 15 minutes before
+production; separate scratch databases keep the environments isolated. Empty
+application tables are preserved and valid. The same SQL
 parser handles this restore and protected CI recovery. Cleanup runs in finally,
 including partial imports and count failures. Runner termination or an API outage
 can prevent cleanup; verify the next successful monthly cleanup or recover through

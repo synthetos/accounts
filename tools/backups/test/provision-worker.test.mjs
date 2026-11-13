@@ -20,3 +20,16 @@ test('provisions only scratch, preserves source, and pins every private binding'
   assert.throws(() => workerConfig('production', source, source), /differ/);
   await assert.rejects(provisionWorker('production', 'a'.repeat(32), async () => ({ result: [] }), r2), /missing/);
 });
+
+test('environment-specific scratch bindings and cron offsets are exact', () => {
+  for (const environment of ['staging', 'production']) {
+    const suffix = environment === 'staging' ? '-staging' : '';
+    const config = workerConfig(environment, 'SOURCE_DATABASE_ID', 'SCRATCH_DATABASE_ID');
+    assert.equal(config.d1_databases[1].database_name, `restore-test-${REPO}${suffix}`);
+    assert.deepEqual(config.triggers.crons, [`${(REPO === 'accounts' ? 45 : 50) - (environment === 'staging' ? 15 : 0)} 7 * * *`]);
+    const wrong = structuredClone(config);
+    wrong.d1_databases[1].database_name = `restore-test-${REPO}${suffix ? '' : '-staging'}`;
+    assert.equal(checkBackupConfig(wrong), false);
+    assert.equal(checkBackupConfig({ ...config, triggers: { crons: ['0 0 * * *'] } }), false);
+  }
+});

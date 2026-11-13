@@ -19,6 +19,9 @@ test('private backup Worker exact bindings pass, all extra bindings or public ro
   for (const environment of ['staging', 'production']) {
     const config = JSON.parse(readFileSync(`workers/backup/wrangler.${environment}.json`, 'utf8'));
     assert.ok(checkBackupConfig(config));
+    const wrongScratch = structuredClone(config);
+    wrongScratch.d1_databases.find(d => d.binding === 'SCRATCH').database_name = environment === 'staging' ? 'restore-test-accounts' : 'restore-test-accounts-staging';
+    assert.equal(checkBackupConfig(wrongScratch), false);
     for (const patch of [{ workers_dev: true }, { preview_urls: true }, { routes: [{ pattern: 'backup.test', custom_domain: true }] }, { route: 'backup.test' }, { services: [] }, { kv_namespaces: [] }, { build: { command: 'false' } }, { d1_databases: [...config.d1_databases, config.d1_databases[0]] }, { r2_buckets: [{ binding: 'BACKUPS', bucket_name: 'other' }] }]) assert.equal(checkBackupConfig({ ...config, ...patch }), false);
     assert.equal(workerConfig(environment, '11111111-2222-4333-8444-555555555555', '66666666-7777-4888-9999-aaaaaaaaaaaa').workers_dev, false);
   }
