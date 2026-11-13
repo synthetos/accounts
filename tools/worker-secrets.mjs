@@ -17,8 +17,11 @@ export const randomKey = () => randomBytes(32).toString('base64url');
 /** A fresh P-256 private key as a JWK string, for signing ID tokens. */
 export const signingJwk = () => JSON.stringify(generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ format: 'jwk' }));
 
-/** What each Worker needs: `generate` makes the value on the runner, `fromEnv` takes it from the step's env. */
+/** Staging generates missing keys; production takes every value from its protected environment. */
 export const PLANS = {
+  // Production values come only from the protected production environment, never staging or a fallback.
+  accounts: Object.fromEntries(['GITHUB_CLIENT_SECRET', 'OAUTH_STATE_KEY', 'FORM_KEY', 'RATE_KEY', 'GITHUB_WEBHOOK_SECRET', 'ID_TOKEN_PRIVATE_JWK'].map(name => [name, { fromEnv: true }])),
+  run: Object.fromEntries(['RUN_STATE_KEY', 'RUN_RATE_KEY'].map(name => [name, { fromEnv: true }])),
   'accounts-staging': {
     GITHUB_CLIENT_SECRET: { fromEnv: true },
     OAUTH_STATE_KEY: { generate: randomKey },

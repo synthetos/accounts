@@ -68,8 +68,42 @@ test('the staging-secrets workflow is manual, staging-only, and gives the token 
   assert.equal(withToken.length, 1);
   assert.equal(withToken[0].run, 'node tools/worker-secrets.mjs "$WORKER"');
   assert.equal(withToken[0].env.WORKER, '${{ inputs.worker }}');
-  assert.deepEqual(wf.on.workflow_dispatch.inputs.worker.options, Object.keys(PLANS));
+  assert.deepEqual(wf.on.workflow_dispatch.inputs.worker.options, Object.keys(PLANS).filter(name => name.endsWith('-staging')));
   assert.equal(wf.on.workflow_dispatch.inputs.worker.type, 'choice');
   assert.equal(withToken[0].env.GITHUB_CLIENT_SECRET, '${{ secrets.APP_CLIENT_SECRET }}');
   assert.doesNotMatch(JSON.stringify(wf), /production/);
+});
+
+test('production uses only supplied production values, keeps existing secrets, and never generates a fallback', async () => {
+  for (const script of ['accounts', 'run']) {
+    const values = Object.fromEntries(Object.keys(PLANS[script]).map(name => [name, `production-${name}`]));
+    const { fn, puts } = stub([]);
+    const result = await setMissingSecrets(script, { ...env, ...values }, fn);
+    assert.deepEqual(result.problems, []);
+    assert.equal(puts.length, Object.keys(values).length);
+    for (const put of puts) { assert.equal(put.text, values[put.name]); assert.ok(put.url.endsWith(`/workers/scripts/${script}/secrets`)); }
+    const missing = stub([]);
+    const refused = await setMissingSecrets(script, { CLOUDFLARE_API_TOKEN: 't', CLOUDFLARE_ACCOUNT_ID: 'acc' }, missing.fn);
+    assert.equal(refused.problems.length, Object.keys(values).length); assert.equal(missing.puts.length, 0);
+    const kept = stub(Object.keys(values));
+    assert.deepEqual((await setMissingSecrets(script, env, kept.fn)).problems, []); assert.equal(kept.puts.length, 0);
+  }
+});
+test('production-secrets is manual, main-only, production protected, with scoped environment secrets and no output of values', () => {
+  const wf = JSON.parse(readFileSync('.github/workflows/production-secrets.yml', 'utf8'));
+  assert.deepEqual(Object.keys(wf.on), ['workflow_dispatch']);
+  assert.deepEqual(wf.on.workflow_dispatch.inputs.worker.options, ['accounts', 'run']);
+  const job = wf.jobs['set-production-secrets'];
+  assert.equal(job.environment, 'production'); assert.equal(job.if, "github.ref == 'refs/heads/main'");
+  assert.deepEqual(job.permissions, { contents: 'read' });
+  assert.equal(job.steps.length, 4);
+  for (const step of job.steps.slice(0, 2)) { assert.match(step.uses, /@[0-9a-f]{40}$/); assert.doesNotMatch(JSON.stringify(step), /secrets/); }
+  for (const [index, script] of ['accounts', 'run'].entries()) {
+    const step = job.steps[index + 2];
+    assert.equal(step.if, `inputs.worker == '${script}'`);
+    assert.equal(step.run, 'node tools/worker-secrets.mjs "$WORKER"');
+    assert.deepEqual(Object.keys(step.env).sort(), ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'WORKER', ...Object.keys(PLANS[script])].sort());
+    for (const key of Object.keys(PLANS[script])) assert.match(step.env[key], /^\$\{\{ secrets\.[A-Z_]+ \}\}$/);
+  }
+  assert.doesNotMatch(JSON.stringify(wf), /staging|echo|printenv/);
 });

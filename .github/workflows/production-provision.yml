@@ -1,0 +1,47 @@
+{
+  "name": "production-provision",
+  "on": {
+    "workflow_dispatch": {}
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "jobs": {
+    "provision": {
+      "if": "github.ref == 'refs/heads/main'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 10,
+      "environment": "production",
+      "permissions": {
+        "contents": "read"
+      },
+      "concurrency": {
+        "group": "accounts-deploy-production",
+        "cancel-in-progress": false
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "uses": "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+          "with": {
+            "node-version": "22.22.0",
+            "package-manager-cache": false
+          }
+        },
+        {
+          "name": "Provision identity and print its id for review",
+          "env": {
+            "CLOUDFLARE_D1_API_TOKEN": "${{ secrets.CLOUDFLARE_D1_API_TOKEN }}",
+            "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
+          },
+          "run": "node tools/provision-identity.mjs"
+        }
+      ]
+    }
+  }
+}

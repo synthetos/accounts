@@ -41,6 +41,8 @@ test('D37: the allowlist is the owner\'s numeric GitHub id only, and an empty or
     const c = filled();
     c.env.staging.vars.GITHUB_ALLOWED_IDS = bad;
     assert.ok(preflightFindings(c, 'staging').some((f) => f.includes('GITHUB_ALLOWED_IDS')), bad);
+    c.vars.GITHUB_ALLOWED_IDS = bad;
+    assert.ok(preflightFindings(c, 'production').some((f) => f.includes('GITHUB_ALLOWED_IDS')), bad);
   }
 });
 
