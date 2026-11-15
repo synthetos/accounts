@@ -1,3 +1,4 @@
+import { capabilities, type Role, type Capability } from './roles.ts';
 import { clearHostCookie, hashToken, hostCookie, pkceChallenge, randomToken, readHostCookie, signIdToken } from '../../../packages/auth-core/src/index.ts';
 import { base64url, decodeBase64url, utf8 } from '../../../packages/auth-core/src/encoding.ts';
 import type { Env } from './app.ts';
@@ -9,12 +10,13 @@ import { confidentialClient } from './client-auth.ts';
 const CONTINUATION = '__Host-acct_authorize';
 export interface ExchangeContext { redirectUri: string; deviceRecordId: string; sharedComputer?: boolean }
 export interface SessionView {
+  role: Role; capabilities: Capability[];
   id: string; sub: string; name: string; client: string; identities: Identity[]; authAt: number;
   idleExpiresAt: number; absoluteExpiresAt: number; deviceRecordId: string | null; sharedComputer: boolean;
 }
 export interface ExchangeResult { sessionToken: string; idToken: string; expiresIn: number; session: SessionView }
 export function view(row: Session): SessionView {
-  return { id: row.id, sub: row.sub, name: row.name, client: row.client, identities: JSON.parse(row.identities_json) as Identity[],
+  return { role: row.role, capabilities: capabilities(row.role), id: row.id, sub: row.sub, name: row.name, client: row.client, identities: JSON.parse(row.identities_json) as Identity[],
     authAt: row.auth_at, idleExpiresAt: row.idle_expires_at, absoluteExpiresAt: row.abs_expires_at,
     deviceRecordId: row.device_record_id, sharedComputer: row.shared_computer === 1 };
 }

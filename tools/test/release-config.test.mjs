@@ -243,3 +243,15 @@ test('backup failures never trigger site undo and retain their own failed-job su
     assert.equal(report.run, `echo 'Backups failed; the site deploy is unaffected.' >> "$GITHUB_STEP_SUMMARY"`);
   }
 });
+
+test('open signup defaults off and production preflight keeps it off', () => {
+  const config = filled();
+  assert.equal(config.vars.OPEN_SIGNUP, 'false');
+  assert.equal(config.env.staging.vars.OPEN_SIGNUP, 'false');
+  delete config.vars.OPEN_SIGNUP;
+  assert.deepEqual(preflightFindings(config, 'production'), []);
+  for (const value of ['true', 'TRUE', true]) {
+    config.vars.OPEN_SIGNUP = value;
+    assert.ok(preflightFindings(config, 'production').some(f => f.includes('OPEN_SIGNUP')));
+  }
+});

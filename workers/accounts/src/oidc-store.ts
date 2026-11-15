@@ -1,3 +1,4 @@
+import type { Role } from './roles.ts';
 import { randomToken } from '../../../packages/auth-core/src/index.ts';
 import { check } from './security.ts';
 import type { DatabaseSession, IdentityDatabase, Statement } from './store.ts';
@@ -6,12 +7,12 @@ export interface Client { id: string; kind: 'binding' | 'confidential'; redirect
 export interface Authorization { client: string; redirectUri: string; challenge: string; state: string; nonce: string | null; prompt: 'none' | null }
 export interface Identity { provider: string; id: string; login: string }
 export interface Session {
-  id: string; sub: string; name: string; client: string; auth_at: number; step_up_at: number | null;
+  role: Role; id: string; sub: string; name: string; client: string; auth_at: number; step_up_at: number | null;
   created_at: number; last_seen_at: number; idle_expires_at: number; abs_expires_at: number;
   device_record_id: string | null; shared_computer: number; identities_json: string;
 }
-const ACTIVE = `s.revoked_at IS NULL AND s.idle_expires_at>? AND s.abs_expires_at>? AND s.created_at<=? AND u.status='active'`;
-const SESSION_FIELDS = `s.id,u.id AS sub,u.display_name AS name,s.client,s.auth_at,s.step_up_at,
+const ACTIVE = `s.revoked_at IS NULL AND s.idle_expires_at>? AND s.abs_expires_at>? AND s.created_at<=? AND u.status='active' AND EXISTS(SELECT 1 FROM roles WHERE user_id=u.id)`;
+const SESSION_FIELDS = `(SELECT role FROM roles WHERE user_id=u.id) AS role,s.id,u.id AS sub,u.display_name AS name,s.client,s.auth_at,s.step_up_at,
   s.created_at,s.last_seen_at,s.idle_expires_at,s.abs_expires_at,s.device_record_id,s.shared_computer,
   (SELECT json_group_array(json_object('provider',provider,'id',provider_subject,'login',login)) FROM identities WHERE user_id=u.id) AS identities_json`;
 export const RP_IDLE = 12 * 3600;

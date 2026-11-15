@@ -46,3 +46,21 @@ The four Python packages have their installed licence metadata checked through
 the same repository policy as npm dependencies. The pinned greenlet and
 typing_extensions packages have explicit dev-only Python licence exceptions;
 their notices remain in the installed wheels. None enters the Worker artifact.
+
+## People page
+
+`people-server.mjs` serves the real account routes with an in-memory SQLite identity
+database and synthetic GitHub lookups on loopback only. `people.py` uses Chromium
+CDP interception and a closed proxy, exercises add/search/remove/audit and
+moderator read-only access, and saves light/dark screenshots. It needs the same
+Python Playwright environment as the login test. Start the server from the repo
+root, then run:
+
+```sh
+.browser-venv/bin/python test/browser/people.py --port 18985 --screens /absolute/path/to/screens
+```
+
+Start the server with `node test/browser/people-server.mjs`; stop it after the test.
+Use `--executable` to select an installed Chromium. This fixture checks browser
+behavior against the source routes; `test/local-worker.test.mjs` separately checks
+the compiled Worker and its RPC binding in workerd/D1.

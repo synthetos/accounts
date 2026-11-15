@@ -159,7 +159,7 @@ test('rate-limit cleanup is bounded and removes only expired windows, including 
 });
 
 test('session idle/absolute expiry, revocation and account status take effect on primary reads', async () => {
-  const f = fixture();
+  const f = fixture(); f.env.GITHUB_ALLOWED_IDS = '[]'; f.env.OPEN_SIGNUP = 'true';
   try {
     const done = await f.callback(await f.start()); const sid = cookie(done, '__Host-acct_sid'); const hash = sha(sid.split('=')[1]);
     const store = new Store(f.env.IDENTITY, f.env.GITHUB_ALLOWED_IDS); const before = f.db.prepare('SELECT * FROM sessions').get();
@@ -208,7 +208,7 @@ test('disabled or incomplete configuration stays closed and invocation logging s
 });
 
 test('encrypted verifier tampering fails before GitHub, and locked accounts cannot obtain new sessions', async () => {
-  const f = fixture();
+  const f = fixture(); f.env.GITHUB_ALLOWED_IDS = '[]'; f.env.OPEN_SIGNUP = 'true';
   try {
     const flow = await f.start();
     f.db.prepare("UPDATE auth_requests SET pkce_verifier_enc='tampered'").run();

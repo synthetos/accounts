@@ -2,7 +2,7 @@ import { assertFormMutation, clearHostCookie, createFormToken, createPkce, hashT
 import type { IdentityProvider } from '../../../packages/idp/src/index.ts';
 import type { Env } from './app.ts';
 import { AccountStore } from './account-store.ts';
-import { Store } from './store.ts';
+import { Store, type AccountSession } from './store.ts';
 import { check, escapeHtml, keyedHash, key, readBody, seal, single, unseal } from './security.ts';
 
 const SID = '__Host-acct_sid';
@@ -60,26 +60,7 @@ export async function account(request: Request, env: Env, provider: IdentityProv
   if (session === null || hash === null) return { body: null, status: request.method === 'GET' ? 303 : 401,
     headers: { Location: '/login', 'Set-Cookie': clearHostCookie(SID, 'Lax') } };
   if ((url.pathname === '/' || url.pathname === '/account') && request.method === 'GET') {
-    const dashboard = await db.dashboard(hash, now);
-    const fresh = dashboard.step_up_at !== null && dashboard.step_up_at > now - 600 && dashboard.step_up_at <= now;
-    const form = async (path: string, action: string, button: string, field?: { name: string; value: string }, disabled = false): Promise<string> => {
-      const csrf = await createFormToken(formKey, session.id, action, now);
-      return `<form method="post" action="${path}"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}">${field ? `<input type="hidden" name="${field.name}" value="${escapeHtml(field.value)}">` : ''}<button type="submit"${disabled ? ' disabled' : ''}>${escapeHtml(button)}</button></form>`;
-    };
-    const identities = await Promise.all(dashboard.identities.map(async (identity) => `<li>${escapeHtml(identity.provider)}: @${escapeHtml(identity.login)} (ID ${escapeHtml(identity.subject)})${await form('/account/identities/unlink', `unlink:${identity.id}`, `Unlink ${identity.login}`, { name: 'identity', value: identity.id }, !fresh || dashboard.identities.length < 2)}</li>`));
-    const sessions = await Promise.all(dashboard.sessions.map(async (entry) => `<tr><th scope="row">${escapeHtml(entry.client)}${entry.id === session.id ? ' (this session)' : ''}</th><td>${labelTime(entry.created)}</td><td>${labelTime(entry.seen)}</td><td>${escapeHtml(entry.device ?? 'Unknown device')}</td><td>${escapeHtml(entry.country ?? 'Not recorded')}</td><td>${await form('/account/sessions/revoke', `revoke:${entry.id}`, 'Sign out this session', { name: 'session', value: entry.id })}</td></tr>`));
-    return { status: 200, html: true, form: true, body: `<p>Signed in as ${escapeHtml(dashboard.name)}.</p><h2>Linked identities</h2><ul>${identities.join('')}</ul>
-      <p>${fresh ? 'Identity verified recently. Sensitive account actions are available for ten minutes after verification.' : 'Verify with a linked GitHub account before linking or unlinking an identity.'}</p>
-      ${await form('/account/step-up', 'step_up', 'Verify with GitHub')}
-      ${await form('/account/identities/link', 'link', 'Link another GitHub account', undefined, !fresh)}
-      <p>You cannot unlink your last identity. Linking an identity already used by someone else never merges accounts.</p>
-      <h2>Active sessions</h2><p>Up to 100 most recent active sessions, across all Synthetos products.</p>
-      <table><caption>Your active sessions</caption><thead><tr><th scope="col">Product</th><th scope="col">Created</th><th scope="col">Last active</th><th scope="col">Device</th><th scope="col">Country</th><th scope="col">Action</th></tr></thead><tbody>${sessions.join('')}</tbody></table>
-      ${await form('/account/sessions/revoke-all', 'revoke_all', 'Sign out everywhere')}
-      <p>Signing out does not stop a running machine. Pause, Stop and recovery controls remain available.</p>
-      <h2>Your data</h2><p>Full data export and account deletion are not available yet. Both will require a fresh identity verification.</p>
-      ${await form('/account/export', 'export', 'Request data export', undefined, true)}${await form('/account/delete', 'delete', 'Delete account', undefined, true)}
-      <p>Security audit records are retained for one year, including after account deletion. Posts made on GitHub remain on GitHub.</p>` };
+    return accountPage(db, hash, now, session, formKey);
   }
   const routes: Record<string, string> = { '/account/step-up': 'step_up', '/account/identities/link': 'link',
     '/account/identities/unlink': 'unlink', '/account/sessions/revoke': 'revoke', '/account/sessions/revoke-all': 'revoke_all',
@@ -113,4 +94,27 @@ export async function account(request: Request, env: Env, provider: IdentityProv
   // This response has no form and uses no-referrer; /account never gains a GitHub form-action exception.
   return { status: 200, html: true, headers: { 'Set-Cookie': hostCookie(NONCE, nonce, { sameSite: 'Lax', maxAge: 600 }) },
     body: `<p>${purpose === 'step_up' ? 'Choose a GitHub account already linked to this Synthetos account to verify your identity.' : 'Choose the GitHub account you want to link. It must not belong to another Synthetos account.'}</p><p><a href="${escapeHtml(destination)}" rel="noreferrer">Continue to GitHub</a></p><p><a href="/account">Back to account</a></p>` };
+}
+
+async function accountPage(db: AccountStore, hash: string, now: number, session: AccountSession, formKey: CryptoKey): Promise<AccountResponse> {
+  const dashboard = await db.dashboard(hash, now);
+  const fresh = dashboard.step_up_at !== null && dashboard.step_up_at > now - 600 && dashboard.step_up_at <= now;
+  const form = async (path: string, action: string, button: string, field?: { name: string; value: string }, disabled = false): Promise<string> => {
+    const csrf = await createFormToken(formKey, session.id, action, now);
+    return `<form method="post" action="${path}"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}">${field ? `<input type="hidden" name="${field.name}" value="${escapeHtml(field.value)}">` : ''}<button type="submit"${disabled ? ' disabled' : ''}>${escapeHtml(button)}</button></form>`;
+  };
+  const identities = await Promise.all(dashboard.identities.map(async (identity) => `<li>${escapeHtml(identity.provider)}: @${escapeHtml(identity.login)} (ID ${escapeHtml(identity.subject)})${await form('/account/identities/unlink', `unlink:${identity.id}`, `Unlink ${identity.login}`, { name: 'identity', value: identity.id }, !fresh || dashboard.identities.length < 2)}</li>`));
+  const sessions = await Promise.all(dashboard.sessions.map(async (entry) => `<tr><th scope="row">${escapeHtml(entry.client)}${entry.id === session.id ? ' (this session)' : ''}</th><td>${labelTime(entry.created)}</td><td>${labelTime(entry.seen)}</td><td>${escapeHtml(entry.device ?? 'Unknown device')}</td><td>${escapeHtml(entry.country ?? 'Not recorded')}</td><td>${await form('/account/sessions/revoke', `revoke:${entry.id}`, 'Sign out this session', { name: 'session', value: entry.id })}</td></tr>`));
+  return { status: 200, html: true, form: true, body: `<p>Signed in as ${escapeHtml(dashboard.name)}.</p>${session.role === 'admin' || session.role === 'moderator' ? '<p><a href="/admin/people">People &amp; access</a></p>' : ''}<h2>Linked identities</h2><ul>${identities.join('')}</ul>
+    <p>${fresh ? 'Identity verified recently. Sensitive account actions are available for ten minutes after verification.' : 'Verify with a linked GitHub account before linking or unlinking an identity.'}</p>
+    ${await form('/account/step-up', 'step_up', 'Verify with GitHub')}
+    ${await form('/account/identities/link', 'link', 'Link another GitHub account', undefined, !fresh)}
+    <p>You cannot unlink your last identity. Linking an identity already used by someone else never merges accounts.</p>
+    <h2>Active sessions</h2><p>Up to 100 most recent active sessions, across all Synthetos products.</p>
+    <table><caption>Your active sessions</caption><thead><tr><th scope="col">Product</th><th scope="col">Created</th><th scope="col">Last active</th><th scope="col">Device</th><th scope="col">Country</th><th scope="col">Action</th></tr></thead><tbody>${sessions.join('')}</tbody></table>
+    ${await form('/account/sessions/revoke-all', 'revoke_all', 'Sign out everywhere')}
+    <p>Signing out does not stop a running machine. Pause, Stop and recovery controls remain available.</p>
+    <h2>Your data</h2><p>Full data export and account deletion are not available yet. Both will require a fresh identity verification.</p>
+    ${await form('/account/export', 'export', 'Request data export', undefined, true)}${await form('/account/delete', 'delete', 'Delete account', undefined, true)}
+    <p>Security audit records are retained for one year, including after account deletion. Posts made on GitHub remain on GitHub.</p>` };
 }

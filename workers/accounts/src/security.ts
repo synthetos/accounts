@@ -7,7 +7,7 @@ export class HttpError extends Error {
 export function check(condition: unknown, status = 400, message = 'request_refused'): asserts condition {
   if (!condition) throw new HttpError(status, message);
 }
-export async function readBody(request: Request, max: number): Promise<string> {
+export async function readBody(request: Pick<Request, 'body'>, max: number): Promise<string> {
   check(request.body !== null);
   const reader = request.body.getReader();
   const decoder = new TextDecoder('utf-8', { fatal: true });

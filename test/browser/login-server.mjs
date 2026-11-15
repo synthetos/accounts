@@ -29,6 +29,7 @@ for (const file of readdirSync(join(artifactRoot, 'migrations')).filter((f) => f
 // Synthetic signed-in browser fixture; never part of the Worker bundle.
 const now=Math.floor(Date.now()/1000); const user='usr_'+'0'.repeat(26);
 await db.prepare('INSERT INTO users(id,display_name,created_at) VALUES (?,?,?)').bind(user,'Browser fixture',now).run();
+await db.prepare("INSERT INTO roles(user_id,role,granted_at) VALUES (?,'member',?)").bind(user,now).run();
 await db.prepare("INSERT INTO identities(id,user_id,provider,provider_subject,login,linked_at) VALUES ('idn_browser',?,'github','12345','browser-fixture',?)").bind(user,now).run();
 const cookieToken=Buffer.alloc(32,9).toString('base64url');
 await db.prepare("INSERT INTO sessions(token_hash,id,user_id,client,created_at,last_seen_at,idle_expires_at,abs_expires_at,auth_at,sign_in_identity_id) VALUES (?,'ses_browser',?,'accounts',?,?,?,?,?,'idn_browser')")

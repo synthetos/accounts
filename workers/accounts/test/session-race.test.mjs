@@ -6,8 +6,8 @@ import { OidcStore } from '../src/oidc-store.ts';
 import { randomToken } from '../../../packages/auth-core/src/index.ts';
 
 async function sessionFixture(client) {
-  const f=fixture();const hash=sha(randomToken());
-  await new Store(f.env.IDENTITY,f.env.GITHUB_ALLOWED_IDS).signIn('github',
+  const f=fixture();f.env.GITHUB_ALLOWED_IDS='[]';const hash=sha(randomToken());
+  await new Store(f.env.IDENTITY,f.env.GITHUB_ALLOWED_IDS,true).signIn('github',
     {subject:'12345',login:'alice',displayName:'Alice',avatarUrl:null},hash,f.now,f.now);
   if(client!=='accounts') {
     f.db.exec("INSERT INTO oauth_clients(id,name,kind,redirect_uris_json,secret_hash) VALUES ('forum','Forum','confidential','[]','"+'0'.repeat(64)+"')");

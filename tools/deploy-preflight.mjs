@@ -40,6 +40,7 @@ export function preflightFindings(config, env) {
     findings.push(`${where}d1_databases[0].database_id is not a D1 database id (still the placeholder?): create ${DATABASE_NAMES[env]} and put in its id`);
   }
   const vars = isObject(scope.vars) ? scope.vars : {};
+  if (env === 'production' && vars.OPEN_SIGNUP !== undefined && vars.OPEN_SIGNUP !== 'false') findings.push('vars.OPEN_SIGNUP must remain off for production');
   if (vars.AUTH_ENABLED !== 'true') findings.push(`${where}vars.AUTH_ENABLED must be "true"`);
   if (vars.ACCOUNT_ORIGIN !== `https://${HOSTS[env]}`) findings.push(`${where}vars.ACCOUNT_ORIGIN must be https://${HOSTS[env]}`);
   const appId = String(vars.GITHUB_APP_ID ?? '');

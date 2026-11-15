@@ -3,8 +3,10 @@ import { basename } from 'node:path';
 import { archiveKey, pack, unpack, expectedCounts, checkRestored, quoteIdentifier } from './archive.mjs';
 export const TABLES_SQL = "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_cf_*'";
 export async function emptyDatabase(io, database) {
-  const tables = await io.query(database, TABLES_SQL);
-  if (tables.length > 0) await io.query(database, `PRAGMA defer_foreign_keys=ON; ${tables.map(t => `DROP TABLE ${quoteIdentifier(t.name)};`).join(' ')}`);
+  const tables = await io.query(database, TABLES_SQL + ' ORDER BY rowid DESC');
+  // Whole-database teardown must remove guards before FK cascades (for example the last-admin guard).
+  const triggers = await io.query(database, "SELECT name FROM sqlite_schema WHERE type='trigger' AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_cf_*'");
+  if (tables.length > 0) await io.query(database, `PRAGMA defer_foreign_keys=ON; ${triggers.map(t => `DROP TRIGGER ${quoteIdentifier(t.name)};`).join(' ')} ${tables.map(t => `DROP TABLE ${quoteIdentifier(t.name)};`).join(' ')}`);
   if ((await io.query(database, TABLES_SQL)).length !== 0) throw new Error('Database cleanup failed');
 }
 export async function restoreCheck(io, repo, source, sql, counts) {

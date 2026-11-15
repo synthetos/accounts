@@ -3,7 +3,7 @@ import type { ProviderProfile } from '../../../packages/idp/src/index.ts';
 import { check } from './security.ts';
 import type { DatabaseSession, IdentityDatabase, Statement } from './store.ts';
 
-const ACTIVE = `s.client='accounts' AND s.revoked_at IS NULL AND s.idle_expires_at>? AND s.abs_expires_at>? AND u.status='active'`;
+const ACTIVE = `s.client='accounts' AND s.revoked_at IS NULL AND s.idle_expires_at>? AND s.abs_expires_at>? AND u.status='active' AND EXISTS(SELECT 1 FROM roles WHERE user_id=u.id)`;
 const FRESH = 's.step_up_at>? AND s.step_up_at<=?';
 export interface ManagementFlow { state_hash: string; session_id: string; purpose: 'step_up' | 'link'; pkce_verifier_enc: string; created_at: number }
 export interface LinkedIdentity { id: string; provider: string; subject: string; login: string }

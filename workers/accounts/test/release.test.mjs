@@ -5,7 +5,7 @@ import { Store } from '../src/store.ts';
 import { randomToken, createPkce } from '../../../packages/auth-core/src/index.ts';
 
 const profile={subject:'12345',login:'fixture',displayName:'Fixture',avatarUrl:null};
-test('D37 admission is config-only, numeric, fail-closed and audited before any identity creation',async()=>{
+test('bootstrap configuration is numeric and fail-closed; existing roles supersede the allowlist',async()=>{
   for(const configuration of [undefined,'not-json','{}','[12345]','["01"]','["1e3"]','["0"]','["-1"]','["9007199254740992"]','["12345","12345"]','["12345\\n"]',JSON.stringify(Array.from({length:1001},(_,i)=>String(i+1))),' '.repeat(100001)]){
     const f=fixture();try{
       await assert.rejects(new Store(f.env.IDENTITY,configuration).signIn('github',profile,sha(randomToken()),f.now,f.now),{message:'service_unavailable'});
@@ -14,19 +14,18 @@ test('D37 admission is config-only, numeric, fail-closed and audited before any 
   }
   const f=fixture();try{
     f.env.GITHUB_ALLOWED_IDS='[]';const flow=await f.start();const r=await f.callback(flow,{GITHUB_ALLOWED_IDS:'["12345"]'});
-    assert.equal(r.status,403);assert.equal(await r.text(),'Sign-in opens with the public beta');assert.equal(cookie(r,'__Host-acct_sid'),undefined);
+    assert.equal(r.status,403);assert.equal(await r.text(),'Access requires a role. Contact an administrator.');assert.equal(cookie(r,'__Host-acct_sid'),undefined);
     for(const table of ['users','identities','sessions'])assert.equal(f.db.prepare(`SELECT count(*) n FROM ${table}`).get().n,0);
-    const audit=f.db.prepare('SELECT * FROM security_audit').get();assert.equal(audit.event,'sign_in.denied');assert.equal(audit.user_id,null);assert.deepEqual(JSON.parse(audit.detail_json),{reason:'allowlist'});
+    const audit=f.db.prepare('SELECT * FROM security_audit').get();assert.equal(audit.event,'sign_in.denied');assert.equal(audit.user_id,null);assert.deepEqual(JSON.parse(audit.detail_json),{reason:'role_required'});
     f.env.GITHUB_ALLOWED_IDS='["12345"]';assert.equal((await f.callback(await f.start())).status,303);
-    f.env.GITHUB_ALLOWED_IDS='[]';assert.equal((await f.callback(await f.start())).status,403);
-    assert.equal(f.db.prepare('SELECT count(*) n FROM users').get().n,1);assert.equal(f.db.prepare('SELECT count(*) n FROM sessions').get().n,1);
-    assert.equal(f.db.prepare("SELECT user_id FROM security_audit WHERE event='sign_in.denied' AND user_id IS NOT NULL").get().user_id,f.db.prepare('SELECT id FROM users').get().id);
-    await assert.rejects(new Store(f.env.IDENTITY,'["12345"]').signIn('other',profile,sha(randomToken()),f.now,f.now),/public beta/);
+    f.env.GITHUB_ALLOWED_IDS='[]';assert.equal((await f.callback(await f.start())).status,303);
+    assert.equal(f.db.prepare('SELECT count(*) n FROM users').get().n,1);assert.equal(f.db.prepare('SELECT count(*) n FROM sessions').get().n,2);
+    await assert.rejects(new Store(f.env.IDENTITY,'["12345"]').signIn('other',profile,sha(randomToken()),f.now,f.now),/Access requires a role/);
   }finally{f.close();}
 });
 
 async function introspectionFixture(){
-  const f=fixture();f.accountToken=randomToken();await new Store(f.env.IDENTITY,f.env.GITHUB_ALLOWED_IDS).signIn('github',profile,sha(f.accountToken),f.now,f.now);
+  const f=fixture();f.env.GITHUB_ALLOWED_IDS='[]';f.env.OPEN_SIGNUP='true';f.accountToken=randomToken();await new Store(f.env.IDENTITY,f.env.GITHUB_ALLOWED_IDS,true).signIn('github',profile,sha(f.accountToken),f.now,f.now);
   const user=f.db.prepare('SELECT id FROM users').get().id;
   for(const id of ['forum','other'])f.db.prepare("INSERT INTO oauth_clients(id,name,kind,redirect_uris_json,secret_hash) VALUES (?,?,'confidential','[]',?)").run(id,id,sha(`${id}-secret`));
   f.token=randomToken();f.db.prepare("INSERT INTO sessions(token_hash,id,user_id,client,created_at,last_seen_at,idle_expires_at,abs_expires_at,auth_at) VALUES (?,'ses_forum',?,'forum',?,?,?,?,?)")
@@ -75,6 +74,7 @@ test('main module exposes only the run entrypoint and forwards all RPC methods t
   let main;try{main=await import('../src/index.ts');}finally{hook.deregister();}
   assert.deepEqual(Object.keys(main).sort(),['RunEntrypoint','default']);assert.equal((await main.default.fetch(new Request(origin))).status,503);
   const f=fixture();try{
+    f.env.GITHUB_ALLOWED_IDS='[]';f.env.OPEN_SIGNUP='true';
     f.now=Math.floor(Date.now()/1000);
     const signed=await f.callback(await f.start());const sid=cookie(signed,'__Host-acct_sid');
     // Entrypoint uses wall-clock time, so keep fixture timestamps in the same current second.

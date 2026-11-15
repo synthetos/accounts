@@ -20,6 +20,7 @@
   ],
   "vars": {
     "AUTH_ENABLED": "true",
+    "OPEN_SIGNUP": "false",
     "ACCOUNT_ORIGIN": "https://accounts.synthetos.com",
     "GITHUB_APP_ID": "5562809",
     "GITHUB_CLIENT_ID": "Iv23liIlkNxE7f3oEyX4",
@@ -49,6 +50,7 @@
       ],
       "vars": {
         "AUTH_ENABLED": "true",
+        "OPEN_SIGNUP": "false",
         "ACCOUNT_ORIGIN": "https://staging.accounts.synthetos.com",
         "GITHUB_APP_ID": "5562809",
         "GITHUB_CLIENT_ID": "Iv23liIlkNxE7f3oEyX4",
