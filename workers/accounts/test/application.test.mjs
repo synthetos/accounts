@@ -7,18 +7,27 @@ import { randomToken } from '../../../packages/auth-core/src/index.ts';
 
 test('every response carries the browser isolation policy, including disabled and refused requests',async()=>{
   const f=fixture();try{
-    for(const response of [await createApp().fetch(new Request(origin)),await f.call('/login'),await f.call('/missing'),await f.call('/login',{method:'POST',body:'bad'})]){
+    for(const response of [await createApp().fetch(new Request(origin)),await f.call('/login'),await f.call('/assets/accounts.css'),await f.call('/missing'),await f.call('/login',{method:'POST',body:'bad'})]){
       const h=response.headers;
       assert.equal(h.get('Cache-Control'),'no-store');assert.equal(h.get('X-Content-Type-Options'),'nosniff');
       assert.equal(h.get('Strict-Transport-Security'),'max-age=63072000; includeSubDomains');
       assert.equal(h.get('Permissions-Policy'),'serial=(), usb=(), hid=(), bluetooth=(), camera=(), microphone=(), geolocation=(), payment=()');
       assert.equal(h.get('Cross-Origin-Opener-Policy'),'same-origin');assert.equal(h.get('Cross-Origin-Resource-Policy'),'same-origin');assert.equal(h.get('X-Frame-Options'),'DENY');
-      for(const policy of ["default-src 'none'","script-src 'none'","base-uri 'none'","frame-ancestors 'none'"])assert.ok(h.get('Content-Security-Policy').includes(policy));
+      for(const policy of ["default-src 'none'","script-src 'none'","base-uri 'none'","frame-ancestors 'none'","style-src 'self'"])assert.ok(h.get('Content-Security-Policy').includes(policy));
       assert.equal(h.has('Access-Control-Allow-Origin'),false);assert.equal(h.has('Clear-Site-Data'),false);
     }
     const missing=await f.call('/missing');assert.equal(missing.status,404);assert.equal(await missing.text(),'Not found.');
     const login=await f.call('/login');assert.equal(login.headers.get('Content-Type'),'text/html; charset=utf-8');
-    assert.match(await login.text(),/<!doctype html><html lang="en"><meta charset="utf-8">/);
+    const html=await login.text();
+    assert.equal(html.split('</head>')[0], '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
+      '<meta name="viewport" content="width=device-width"><title>Synthetos Accounts</title>' +
+      '<link rel="stylesheet" href="/assets/accounts.css">');
+    assert.match(html, /<\/head><body><main><header><h1>Synthetos <span>Accounts<\/span><\/h1><\/header>/);
+    assert.match(html, /<\/main><\/body><\/html>$/);
+    assert.doesNotMatch(html, /<(?:script|style)\b/i);
+    assert.equal(login.headers.get('Content-Security-Policy'), "default-src 'none'; script-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'self'; form-action 'self' https://github.com");
+    const stylesheet=await f.call('/assets/accounts.css');
+    assert.equal(stylesheet.status,200);assert.equal(stylesheet.headers.get('Content-Type'),'text/css; charset=utf-8');
   }finally{f.close();}
 });
 test('configuration refuses every missing secret, noncanonical app ID, untrusted origin and unsafe clock',async()=>{
