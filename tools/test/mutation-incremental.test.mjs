@@ -17,7 +17,7 @@ function fixture(t) {
   const calls = [];
   const report = statuses => ({ files: Object.fromEntries(['packages/auth-core', 'packages/idp', 'workers/accounts'].map(name => [name + '/src/a.ts', { mutants: statuses.map(status => ({ status, location: { start: { line: 1, column: 0 } }, mutatorName: 'BooleanLiteral', replacement: 'false' })) }])) });
   const execute = (_node, args) => { calls.push(args); put('reports/release-mutation.json', JSON.stringify(report(['Killed']))); put('reports/stryker-incremental.json', '{}'); return { status: 0 }; };
-  const options = { cwd, execute, env: { GITHUB_OUTPUT: join(cwd, 'output') } };
+  const options = { cwd, execute, env: { GITHUB_OUTPUT: join(cwd, 'reports/github-output') } };
   return { cwd, put, calls, report, options };
 }
 
@@ -44,6 +44,41 @@ test('removed tracked tests also invalidate the cache', t => {
   const before = contextHash(f.cwd); rmSync(join(f.cwd, 'packages/auth-core/test/a.test.mjs'));
   assert.notEqual(contextHash(f.cwd), before);
 });
+test('adding a migration after a warm quick run forces a full run', t => {
+  const f = fixture(t); runMutation('quick', f.options); runMutation('quick', f.options);
+  assert.ok(!f.calls[1].includes('--force'));
+  f.put('migrations/0009_example.sql', 'CREATE TABLE example (id TEXT PRIMARY KEY);');
+  runMutation('quick', f.options);
+  assert.ok(f.calls[2].includes('--force'));
+});
+for (const action of ['change', 'delete']) {
+  test(`${action} of a tracked migration invalidates warm results`, t => {
+    const f = fixture(t); const file = 'migrations/0009_example.sql';
+    f.put(file, 'CREATE TABLE example (id TEXT PRIMARY KEY);');
+    execFileSync('git', ['add', file], { cwd: f.cwd });
+    runMutation('quick', f.options); runMutation('quick', f.options);
+    assert.ok(!f.calls[1].includes('--force'));
+    if (action === 'change') f.put(file, 'CREATE TABLE example (id INTEGER PRIMARY KEY);');
+    else rmSync(join(f.cwd, file));
+    runMutation('quick', f.options);
+    assert.ok(f.calls[2].includes('--force'));
+  });
+}
+for (const file of ['tools/backups/backup.mjs', 'tools/backups/archive.mjs', 'future-test-inputs/schema.json']) {
+  test(`changing repository input ${file} invalidates warm results`, t => {
+    const f = fixture(t); f.put(file, 'before'); runMutation('quick', f.options);
+    f.put(file, 'after'); runMutation('quick', f.options);
+    assert.ok(f.calls[1].includes('--force'));
+  });
+}
+for (const file of ['node_modules/example/index.js', 'packages/auth-core/dist/index.js', 'reports/generated.json', '.git/description']) {
+  test(`generated or repository metadata ${file} does not invalidate warm results`, t => {
+    const f = fixture(t); f.put(file, 'before');
+    if (!file.startsWith('.git/')) execFileSync('git', ['add', '-f', file], { cwd: f.cwd });
+    runMutation('quick', f.options); f.put(file, 'after'); runMutation('quick', f.options);
+    assert.ok(!f.calls[1].includes('--force'));
+  });
+}
 test('missing context forces a full run even with a report', t => {
   const f = fixture(t); f.put('reports/stryker-incremental.json', '{}'); runMutation('quick', f.options);
   assert.ok(f.calls[0].includes('--force'));
@@ -52,7 +87,7 @@ test('below-floor complete run stays failed but refreshes reusable results and e
   const f = fixture(t);
   f.options.execute = () => { f.put('reports/release-mutation.json', JSON.stringify(f.report(['Survived']))); f.put('reports/stryker-incremental.json', '{}'); return { status: 1 }; };
   assert.equal(runMutation('full', f.options), 1);
-  assert.match(readFileSync(join(f.cwd, 'output'), 'utf8'), /below=true\ncacheable=true/);
+  assert.match(readFileSync(join(f.cwd, 'reports/github-output'), 'utf8'), /below=true\ncacheable=true/);
   assert.match(readFileSync(join(f.cwd, 'reports/mutation-issue.md'), 'utf8'), /BooleanLiteral/);
 });
 test('failed runner cannot reuse a stale release report or publish a reusable context', t => {
