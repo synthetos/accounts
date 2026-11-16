@@ -29,5 +29,6 @@
   },
   "htmlReporter": {
     "fileName": "reports/release-mutation.html"
-  }
+  },
+  "incrementalFile": "reports/stryker-incremental.json"
 }

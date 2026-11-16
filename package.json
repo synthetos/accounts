@@ -15,10 +15,12 @@
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint packages workers tools",
     "deps": "depcruise packages/auth-core/src packages/idp/src workers/accounts/src --config .dependency-cruiser.cjs",
-    "mutation": "stryker run && node tools/mutation/check-score.mjs",
+    "mutation": "node tools/mutation/run.mjs full",
     "build": "node tools/build.mjs",
     "check": "pnpm typecheck && pnpm lint && pnpm deps && pnpm licence && pnpm test && pnpm mutation && pnpm build",
-    "licence": "node tools/licence/cli.ts"
+    "licence": "node tools/licence/cli.ts",
+    "mutation:quick": "node tools/mutation/run.mjs quick",
+    "check:quick": "pnpm typecheck && pnpm lint && pnpm deps && pnpm licence && pnpm test && pnpm mutation:quick && pnpm build"
   },
   "devDependencies": {
     "@stryker-mutator/core": "9.6.1",

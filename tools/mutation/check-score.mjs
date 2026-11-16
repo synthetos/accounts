@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /** Keep a strong package from hiding a regression in another identity boundary. */
-export function checkScores(report) {
+export function scoreGroups(report) {
   const groups=Object.fromEntries(['auth-core','idp','Worker'].map(name=>[name,{detected:0,total:0}]));
   for(const [file,entry] of Object.entries(report.files)) {
     const name=file.startsWith('packages/auth-core/src/')?'auth-core':file.startsWith('packages/idp/src/')?'idp':file.startsWith('workers/accounts/src/')?'Worker':undefined;
@@ -15,9 +15,17 @@ export function checkScores(report) {
     }
   }
   for(const [name,result] of Object.entries(groups)) {
-    if(result.total===0||result.detected*100<result.total*90)throw new Error(name+' mutation score is below 90% or has no mutants');
+    if(result.total===0)throw new Error(name+' mutation score has no mutants');
   }
   return Object.fromEntries(Object.entries(groups).map(([name,result])=>[name,{...result,score:100*result.detected/result.total}]));
+}
+
+export function checkScores(report) {
+  const groups=scoreGroups(report);
+  for(const [name,result] of Object.entries(groups)) {
+    if(result.detected*100<result.total*90)throw new Error(name+' mutation score is below 90%');
+  }
+  return groups;
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href) {

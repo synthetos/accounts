@@ -62,7 +62,7 @@ test('workflow keeps Cloudflare secrets in gated deploy jobs and pins every acti
   const buildText = JSON.stringify(workflow.jobs.build);
   assert.match(buildText, /ci\/build-toolchain && pnpm install --frozen-lockfile --ignore-scripts/);
   assert.match(buildText, /artifact.mjs compare a\/dist b\/dist/);
-  assert.ok(workflow.jobs.verify.steps.some((s) => s.run === 'pnpm mutation'));
+  assert.ok(workflow.jobs.verify.steps.some((s) => s.run === 'pnpm mutation:quick'));
   const mutation = JSON.parse(readFileSync('stryker.config.json', 'utf8'));
   assert.equal(mutation.thresholds.break, 90);
   assert.match(mutation.commandRunner.command, /^node --import \.\/workers\/accounts\/test\/no-network\.mjs --test /);
