@@ -96,52 +96,61 @@ test('the deploy jobs run the preflight before migrations, and register the clie
   assert.match(readFileSync('tools/build.mjs', 'utf8'), /cpSync\('clients'/);
 });
 
-// Review S2: staging accounts is checked to be behind Cloudflare Access before and after the deploy, positively.
-import { accessFindings, checkAccessApplications, checkAccessGate, onlyUnreachable, postDeployFindings, STAGING_HOST } from '../access-check.mjs';
+// OD-40 (run docs/ops/owner-decisions.md): staging accounts is public. Before and after the deploy, no Cloudflare
+// Access application may cover it and an anonymous request must reach the Worker, not an Access login.
+import { checkNoAccessApplications, checkPublicGate, onlyUnreachable, postDeployFindings, publicFindings, STAGING_HOST } from '../staging-public-check.mjs';
 import { STAGING_SCRIPT, undoStaging } from '../undo-staging.mjs';
 
-const app = (over = {}) => ({ id: 'a1', type: 'self_hosted', domain: STAGING_HOST, policies: [{ name: 'owner', decision: 'allow', include: [{ email: { email: 'o@example.com' } }] }], ...over });
+const app = (over = {}) => ({ id: 'a1', name: 'accounts-staging', type: 'self_hosted', domain: STAGING_HOST, ...over });
 
-test('the Access application must cover the whole staging host, with no Bypass and no Everyone', () => {
-  const policies = (a) => a.policies;
-  assert.deepEqual(checkAccessApplications(STAGING_HOST, [app()], policies), []);
-  assert.deepEqual(checkAccessApplications(STAGING_HOST, [app({ domain: `${STAGING_HOST}/*` })], policies), []);
-  assert.deepEqual(checkAccessApplications(STAGING_HOST, [app({ domain: '*.synthetos.com' })], policies), []);
-  for (const bad of [[], [app({ domain: `${STAGING_HOST}/login` })], [app({ type: 'saas' })], [app({ domain: 'staging.run.synthetos.com' })]]) {
-    assert.match(checkAccessApplications(STAGING_HOST, bad, policies).join(), /would be public/);
+test('no Access application may cover the whole staging host; one that still does is named', () => {
+  for (const none of [[], [app({ domain: `${STAGING_HOST}/login` })], [app({ type: 'saas' })], [app({ domain: 'staging.run.synthetos.com' })]]) {
+    assert.deepEqual(checkNoAccessApplications(STAGING_HOST, none), []);
   }
-  assert.match(checkAccessApplications(STAGING_HOST, [app({ policies: [{ name: 'b', decision: 'bypass', include: [] }] })], policies).join(), /Bypass/);
-  assert.match(checkAccessApplications(STAGING_HOST, [app({ policies: [{ name: 'e', decision: 'allow', include: [{ everyone: {} }] }] })], policies).join(), /Everyone/);
-  assert.match(checkAccessApplications(STAGING_HOST, null, policies).join(), /could not be read/);
+  for (const covering of [[app()], [app({ domain: `${STAGING_HOST}/*` })], [app({ domain: '*.synthetos.com' })], [app({ domain: undefined, self_hosted_domains: [STAGING_HOST] })]]) {
+    const findings = checkNoAccessApplications(STAGING_HOST, covering);
+    assert.equal(findings.length, 1);
+    assert.match(findings[0], /'accounts-staging' still covers/);
+    assert.match(findings[0], /Zero Trust/);
+  }
+  assert.match(checkNoAccessApplications(STAGING_HOST, [app({ name: undefined })]).join(), /'a1' still covers/);
+  assert.match(checkNoAccessApplications(STAGING_HOST, null).join(), /could not be read/);
+  assert.match(checkNoAccessApplications(STAGING_HOST, 'x').join(), /could not be read/);
 });
 
-test('an anonymous request must be sent to the Access login; unreachable passes only before the first deploy, after the API check', () => {
-  const url = `https://${STAGING_HOST}/`;
-  assert.deepEqual(checkAccessGate(url, { status: 302, location: 'https://synthetos.cloudflareaccess.com/cdn-cgi/access/login' }, false), []);
-  assert.match(checkAccessGate(url, { status: 200, location: null }, false).join(), /NOT behind Cloudflare Access/);
-  assert.match(checkAccessGate(url, { status: 302, location: 'https://evil.example/' }, false).join(), /NOT behind/);
-  assert.deepEqual(checkAccessGate(url, 'unreachable', true), []);
-  assert.match(checkAccessGate(url, 'unreachable', false).join(), /unreachable/);
+test('an anonymous request must reach the Worker; an Access login or a 5xx fails; unreachable passes only before the first deploy, after the API check', () => {
+  const url = `https://${STAGING_HOST}/login`;
+  assert.deepEqual(checkPublicGate(url, { status: 200, location: null }, false), []);
+  assert.deepEqual(checkPublicGate(url, { status: 302, location: '/login' }, false), []);
+  assert.deepEqual(checkPublicGate(url, { status: 404, location: null }, false), []);
+  assert.match(checkPublicGate(url, { status: 302, location: 'https://synthetos.cloudflareaccess.com/cdn-cgi/access/login' }, false).join(), /still behind Cloudflare Access/);
+  assert.match(checkPublicGate(url, { status: 302, location: 'HTTPS://Team.CloudflareAccess.com/x' }, false).join(), /still behind/);
+  assert.deepEqual(checkPublicGate(url, { status: 302, location: 'https://cloudflareaccess.com.evil.example/' }, false), []);
+  assert.match(checkPublicGate(url, { status: 503, location: null }, false).join(), /answered 503/);
+  assert.deepEqual(checkPublicGate(url, 'unreachable', true), []);
+  assert.match(checkPublicGate(url, 'unreachable', false).join(), /unreachable/);
 });
 
-test('pre- and post-deploy end to end with a stubbed Cloudflare: missing credentials fail, a public host fails, Access passes', async () => {
+test('pre- and post-deploy end to end with a stubbed Cloudflare: missing credentials fail, an Access application or login fails, a public host passes', async () => {
   const env = { CLOUDFLARE_API_TOKEN: 't', CLOUDFLARE_ACCOUNT_ID: 'acc' };
   const stub = (apps, probeStatus) => async (url) => {
     if (url.startsWith('https://api.cloudflare.com/')) return Response.json({ success: true, result: apps, result_info: { total_pages: 1 } });
     if (probeStatus === 'down') throw new Error('unreachable');
     return new Response(null, { status: probeStatus, headers: probeStatus === 302 ? { location: 'https://team.cloudflareaccess.com/login' } : {} });
   };
-  assert.match((await accessFindings('pre', {}, stub([app()], 302))).join(), /CLOUDFLARE_API_TOKEN is not set/);
-  assert.deepEqual(await accessFindings('pre', env, stub([app()], 'down')), []);
-  assert.match((await accessFindings('pre', env, stub([], 'down'))).join(), /would be public/);
-  assert.deepEqual(await accessFindings('post', env, stub([app()], 302)), []);
-  assert.match((await accessFindings('post', env, stub([app()], 200))).join(), /NOT behind/);
-  assert.match((await accessFindings('post', env, stub([app()], 'down'))).join(), /unreachable/);
+  assert.match((await publicFindings('pre', {}, stub([], 200))).join(), /CLOUDFLARE_API_TOKEN is not set/);
+  assert.deepEqual(await publicFindings('pre', env, stub([], 'down')), []);
+  assert.match((await publicFindings('pre', env, stub([app()], 'down'))).join(), /still covers/);
+  assert.match((await publicFindings('pre', env, stub([], 302))).join(), /still behind/);
+  assert.deepEqual(await publicFindings('post', env, stub([], 200)), []);
+  assert.match((await publicFindings('post', env, stub([], 302))).join(), /still behind/);
+  assert.match((await publicFindings('post', env, stub([app()], 200))).join(), /still covers/);
+  assert.match((await publicFindings('post', env, stub([], 'down'))).join(), /unreachable/);
 });
 
-test('post-deploy waits while the new custom domain is unreachable, but a public answer fails at once', async () => {
+test('post-deploy waits while the new custom domain is unreachable, but an Access login fails at once', async () => {
   const env = { CLOUDFLARE_API_TOKEN: 't', CLOUDFLARE_ACCOUNT_ID: 'acc' };
-  const api = () => Response.json({ success: true, result: [app()], result_info: { total_pages: 1 } });
+  const api = () => Response.json({ success: true, result: [], result_info: { total_pages: 1 } });
   const seq = (answers) => { let n = 0; const probes = []; return { probes, fn: async (url) => {
     if (url.startsWith('https://api.cloudflare.com/')) return api();
     const a = answers[Math.min(Math.floor(n++ / 2), answers.length - 1)];
@@ -151,11 +160,11 @@ test('post-deploy waits while the new custom domain is unreachable, but a public
   } }; };
   const waits = [];
   const wait = async (ms) => { waits.push(ms); };
-  const comesUp = seq(['down', 'down', 302]);
+  const comesUp = seq(['down', 'down', 200]);
   assert.deepEqual(await postDeployFindings(env, comesUp.fn, { attempts: 5, delayMs: 7, wait }), []);
   assert.deepEqual(waits, [7, 7]);
   waits.length = 0;
-  assert.match((await postDeployFindings(env, seq(['down', 200]).fn, { attempts: 5, delayMs: 7, wait })).join(), /NOT behind/);
+  assert.match((await postDeployFindings(env, seq(['down', 302]).fn, { attempts: 5, delayMs: 7, wait })).join(), /still behind/);
   assert.deepEqual(waits, [7]);
   waits.length = 0;
   assert.match((await postDeployFindings(env, seq(['down']).fn, { attempts: 3, delayMs: 7, wait })).join(), /unreachable/);
@@ -176,14 +185,14 @@ test('undo deletes only the accounts-staging Worker through the API; gone alread
   assert.match((await undoStaging({}, stub(200, true))).join(), /CLOUDFLARE_API_TOKEN is not set/);
 });
 
-test('the staging deploy checks Access before anything else and after the deploy, and deletes staging only if the site deploy or Access check fails', () => {
+test('the staging deploy checks that staging is public before anything else and after the deploy, and deletes staging only if the site deploy or the public check fails', () => {
   const { jobs } = JSON.parse(readFileSync('.github/workflows/ci.yml', 'utf8'));
   const steps = jobs['deploy-staging'].steps;
   const at = (needle) => steps.findIndex((s) => (s.run ?? '').includes(needle));
-  const pre = at('node tools/access-check.mjs --pre-deploy');
+  const pre = at('node tools/staging-public-check.mjs --pre-deploy');
   const preflight = at('node tools/deploy-preflight.mjs');
   const deploy = at('wrangler deploy --no-bundle');
-  const post = at('node tools/access-check.mjs --post-deploy');
+  const post = at('node tools/staging-public-check.mjs --post-deploy');
   const undo = at('node tools/undo-staging.mjs');
   assert.ok(pre > 0 && pre < preflight && deploy < post && post < undo);
   assert.equal(steps[deploy].id, 'deploy');
