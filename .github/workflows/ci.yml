@@ -316,13 +316,13 @@
           "id": "site_smoke"
         },
         {
-          "name": "Undo: delete staging when the site deploy or the public check failed",
-          "if": "failure() && (steps.deploy.outcome == 'failure' || steps.site_smoke.outcome == 'failure')",
+          "name": "Undo: roll staging back to the previous version when the public check failed after a successful deploy (OD-40)",
+          "if": "failure() && steps.deploy.outcome == 'success' && steps.site_smoke.outcome == 'failure'",
           "env": {
             "CLOUDFLARE_API_TOKEN": "${{ secrets.CLOUDFLARE_API_TOKEN }}",
             "CLOUDFLARE_ACCOUNT_ID": "${{ vars.CLOUDFLARE_ACCOUNT_ID }}"
           },
-          "run": "node tools/undo-staging.mjs"
+          "run": "ci/deploy-toolchain/node_modules/.bin/wrangler rollback --config payload/wrangler.json --env staging --yes --message \"post-deploy public check failed\""
         },
         {
           "name": "Provision private backup resources",

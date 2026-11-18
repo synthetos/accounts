@@ -99,7 +99,6 @@ test('the deploy jobs run the preflight before migrations, and register the clie
 // OD-40 (run docs/ops/owner-decisions.md): staging accounts is public. Before and after the deploy, no Cloudflare
 // Access application may cover it and an anonymous request must reach the Worker, not an Access login.
 import { checkNoAccessApplications, checkPublicGate, onlyUnreachable, postDeployFindings, publicFindings, STAGING_HOST } from '../staging-public-check.mjs';
-import { STAGING_SCRIPT, undoStaging } from '../undo-staging.mjs';
 
 const app = (over = {}) => ({ id: 'a1', name: 'accounts-staging', type: 'self_hosted', domain: STAGING_HOST, ...over });
 
@@ -118,7 +117,7 @@ test('no Access application may cover the whole staging host; one that still doe
   assert.match(checkNoAccessApplications(STAGING_HOST, 'x').join(), /could not be read/);
 });
 
-test('an anonymous request must reach the Worker; an Access login or a 5xx fails; unreachable passes only before the first deploy, after the API check', () => {
+test('an anonymous request must reach the Worker (a 503 from it included); an Access login fails; unreachable passes only before the first deploy, after the API check', () => {
   const url = `https://${STAGING_HOST}/login`;
   assert.deepEqual(checkPublicGate(url, { status: 200, location: null }, false), []);
   assert.deepEqual(checkPublicGate(url, { status: 302, location: '/login' }, false), []);
@@ -126,7 +125,9 @@ test('an anonymous request must reach the Worker; an Access login or a 5xx fails
   assert.match(checkPublicGate(url, { status: 302, location: 'https://synthetos.cloudflareaccess.com/cdn-cgi/access/login' }, false).join(), /still behind Cloudflare Access/);
   assert.match(checkPublicGate(url, { status: 302, location: 'HTTPS://Team.CloudflareAccess.com/x' }, false).join(), /still behind/);
   assert.deepEqual(checkPublicGate(url, { status: 302, location: 'https://cloudflareaccess.com.evil.example/' }, false), []);
-  assert.match(checkPublicGate(url, { status: 503, location: null }, false).join(), /answered 503/);
+  // A fresh accounts-staging answers 503 until the owner installs its secrets: that answer comes from the Worker, so
+  // it proves no Access login is in front, and the check must not fail it (a failing check would undo the deploy).
+  assert.deepEqual(checkPublicGate(url, { status: 503, location: null }, false), []);
   assert.deepEqual(checkPublicGate(url, 'unreachable', true), []);
   assert.match(checkPublicGate(url, 'unreachable', false).join(), /unreachable/);
 });
@@ -143,6 +144,7 @@ test('pre- and post-deploy end to end with a stubbed Cloudflare: missing credent
   assert.match((await publicFindings('pre', env, stub([app()], 'down'))).join(), /still covers/);
   assert.match((await publicFindings('pre', env, stub([], 302))).join(), /still behind/);
   assert.deepEqual(await publicFindings('post', env, stub([], 200)), []);
+  assert.deepEqual(await publicFindings('post', env, stub([], 503)), []);
   assert.match((await publicFindings('post', env, stub([], 302))).join(), /still behind/);
   assert.match((await publicFindings('post', env, stub([app()], 200))).join(), /still covers/);
   assert.match((await publicFindings('post', env, stub([], 'down'))).join(), /unreachable/);
@@ -173,19 +175,7 @@ test('post-deploy waits while the new custom domain is unreachable, but an Acces
   assert.equal(onlyUnreachable(['x is unreachable', 'Cloudflare API 403: could not list Access applications']), false);
 });
 
-test('undo deletes only the accounts-staging Worker through the API; gone already is fine, a refusal fails', async () => {
-  const env = { CLOUDFLARE_API_TOKEN: 't', CLOUDFLARE_ACCOUNT_ID: 'acc' };
-  const calls = [];
-  const stub = (status, success) => async (url, init) => { calls.push([url, init.method]); return Response.json({ success }, { status }); };
-  assert.deepEqual(await undoStaging(env, stub(200, true)), []);
-  assert.deepEqual(calls[0], [`https://api.cloudflare.com/client/v4/accounts/acc/workers/scripts/${STAGING_SCRIPT}?force=true`, 'DELETE']);
-  assert.equal(STAGING_SCRIPT, 'accounts-staging');
-  assert.deepEqual(await undoStaging(env, stub(404, false)), []);
-  assert.match((await undoStaging(env, stub(403, false))).join(), /could not delete accounts-staging/);
-  assert.match((await undoStaging({}, stub(200, true))).join(), /CLOUDFLARE_API_TOKEN is not set/);
-});
-
-test('the staging deploy checks that staging is public before anything else and after the deploy, and deletes staging only if the site deploy or the public check fails', () => {
+test('the staging deploy checks that staging is public before anything else and after the deploy, and rolls back (never deletes) only after a successful deploy whose public check failed', () => {
   const { jobs } = JSON.parse(readFileSync('.github/workflows/ci.yml', 'utf8'));
   const steps = jobs['deploy-staging'].steps;
   const at = (needle) => steps.findIndex((s) => (s.run ?? '').includes(needle));
@@ -193,12 +183,15 @@ test('the staging deploy checks that staging is public before anything else and 
   const preflight = at('node tools/deploy-preflight.mjs');
   const deploy = at('wrangler deploy --no-bundle');
   const post = at('node tools/staging-public-check.mjs --post-deploy');
-  const undo = at('node tools/undo-staging.mjs');
+  const undo = at('wrangler rollback');
   assert.ok(pre > 0 && pre < preflight && deploy < post && post < undo);
   assert.equal(steps[deploy].id, 'deploy');
   assert.equal(steps[post].id, 'site_smoke');
-  assert.equal(steps[undo].if, "failure() && (steps.deploy.outcome == 'failure' || steps.site_smoke.outcome == 'failure')");
+  assert.equal(steps[undo].run, 'ci/deploy-toolchain/node_modules/.bin/wrangler rollback --config payload/wrangler.json --env staging --yes --message "post-deploy public check failed"');
+  assert.equal(steps[undo].if, "failure() && steps.deploy.outcome == 'success' && steps.site_smoke.outcome == 'failure'");
   for (const i of [pre, post, undo]) assert.deepEqual(Object.keys(steps[i].env).sort(), ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN']);
+  // OD-40: no step of either deploy job deletes a Worker any more (the deletion existed only for a removed Access application).
+  for (const job of Object.values(jobs)) for (const step of job.steps ?? []) assert.doesNotMatch(step.run ?? '', /wrangler delete|undo-staging/);
 });
 
 
@@ -241,9 +234,10 @@ test('D1 credentials appear only on exact migration, client-registration and bac
 
 test('backup failures never trigger site undo and retain their own failed-job summary', () => {
   const { jobs } = JSON.parse(readFileSync('.github/workflows/ci.yml', 'utf8'));
-  const undo = jobs['deploy-staging'].steps.find(s => s.run === 'node tools/undo-staging.mjs');
+  const undo = jobs['deploy-staging'].steps.find(s => (s.run ?? '').includes('wrangler rollback'));
   const watched = [...undo.if.matchAll(/steps\.(\w+)\.outcome == 'failure'/g)].map(m => m[1]);
-  for (const failed of ['deploy', 'site_smoke', 'backups', 'backup_deploy']) assert.equal(watched.includes(failed), failed === 'deploy' || failed === 'site_smoke');
+  for (const failed of ['deploy', 'site_smoke', 'backups', 'backup_deploy']) assert.equal(watched.includes(failed), failed === 'site_smoke');
+  assert.match(undo.if, /steps\.deploy\.outcome == 'success'/);
   for (const environment of ['staging', 'production']) {
     const steps = jobs[`deploy-${environment}`].steps;
     assert.equal(steps.find(s => s.name === 'Deploy attested private backup Worker').id, 'backup_deploy');

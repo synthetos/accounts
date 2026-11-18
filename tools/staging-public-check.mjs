@@ -53,13 +53,16 @@ function redirectHost(outcome, url) {
   }
 }
 
-/** The findings from an anonymous request's outcome: it must reach the Worker (any answer below 500 that is not an Access login). */
+/**
+ * The findings from an anonymous request's outcome: it must reach the Worker, which is any answer that is not an
+ * Access login. A 503 counts: a fresh accounts-staging answers 503 until the owner installs its secrets, and that
+ * answer comes from the Worker itself. Readiness is the owner's check after the secrets (README), not this gate's.
+ */
 export function checkPublicGate(url, outcome, allowUnreachable) {
   if (outcome === 'unreachable') return allowUnreachable ? [] : [`${url} is unreachable`];
   if (redirectHost(outcome, url).endsWith('.cloudflareaccess.com')) {
     return [`${url} sent an anonymous request to ${outcome.location}: staging accounts is still behind Cloudflare Access (OD-40 removed it; delete the application in Zero Trust → Access → Applications)`];
   }
-  if (outcome.status >= 500) return [`${url} answered ${outcome.status} to an anonymous request`];
   return [];
 }
 

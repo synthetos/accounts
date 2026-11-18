@@ -257,9 +257,10 @@ Each deploy job, on the verified artifact, now runs in this order:
 3. `clients/<env>.sql`: registers the `run` relying party with exactly its own environment's callback,
    idempotently (the RP contract's "reviewed configuration");
 4. the deploy;
-5. staging only: `tools/staging-public-check.mjs --post-deploy` (anonymous `/` and `/login` must answer below
-   500 and not redirect to an Access login). If any step after the deploy fails, the job deletes the staging
-   Worker (`wrangler delete --force`).
+5. staging only: `tools/staging-public-check.mjs --post-deploy` (anonymous `/` and `/login` must reach the Worker
+   rather than an Access login; the Worker's own 503 before its secrets are installed counts as reached). When that
+   check fails after a successful deploy, the job rolls staging back to the previous version (`wrangler rollback`);
+   nothing deletes the Worker any more (run OD-40), so its secrets survive a failed deploy.
 
 `tools/test/release-config.test.mjs` covers all of it. The owner's ordered go-live steps, for this
 repository and run together, are in run's
